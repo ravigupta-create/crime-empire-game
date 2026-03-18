@@ -1334,13 +1334,21 @@ function actThreaten(n){
     return{ok:true,text:`${n.name} backs down, hands shaking. "Okay... I get it." (${ck.chance}% chance, rolled ${ck.roll})`,chg:{fear:'+'+fearGain,loyalty:'-10',heat:'+'+h,rep:'+5'},wc};
   }else{
     n.fear=Math.max(0,n.fear-5);n.nerve=Math.min(100,n.nerve+10);
-    const h2=Math.round((8+wc*2)*risk.heatMod);addHeat(h2,'threaten_fail');addRep(-3,'threaten_fail');
+    const h2=Math.round((8+wc*2)*risk.heatMod);addHeat(h2,'threaten_fail');
     const fightThresh=n.personality==='aggressive'?45:n.personality==='cowardly'?75:60;
     const fight=n.nerve>fightThresh&&n.hp>2;
-    // Aggressive NPCs deal damage on failed threaten
-    let dmgText='';
+    let dmgText='',bonusText='';
     if(n.personality==='aggressive'&&fight){p.hp=Math.max(1,p.hp-1);dmgText=' They land a punch! (-1 HP)'}
-    return{ok:false,text:(fight?`${n.name} doesn't flinch. "You don't scare me."${dmgText} (${ck.chance}%, rolled ${ck.roll})`:`${n.name} isn't impressed. Word will spread. (${ck.chance}%, rolled ${ck.roll})`),chg:{fear:'-5',nerve:'+10',heat:'+'+h2,rep:'-3'},fight};
+    // ── FAILURE AS STORY: failed threats reveal information and create options ──
+    // 1. You learn their nerve — now revealed even without intel
+    n._revealed=n._revealed||{};n._revealed.intent=true;
+    bonusText+='\nYou now know how tough they are.';
+    // 2. Nearby NPCs see you challenged — some respect the attempt
+    if(RNG.chance(25)){addRep(2,'showed_guts');bonusText+=' Some respect the attempt. (+2 rep)'}
+    // 3. The NPC might reveal useful info in their defiance
+    if(n.personality==='generous'&&RNG.chance(30)){bonusText+=`\n${n.name}: "Look, I'll tell you something useful instead..." (+intel)`;
+      if(n.role==='civilian')addLog(RNG.pick(['They mention a stash on Block D.','They know who the undercover cop is.','They reveal a rival\'s weak point.']),'s')}
+    return{ok:false,text:(fight?`${n.name} doesn't flinch. "You don't scare me."${dmgText}`:`${n.name} isn't impressed. Word will spread.`)+bonusText,chg:{fear:'-5',nerve:'+10',heat:'+'+h2},fight};
   }
 }
 
@@ -1393,8 +1401,11 @@ function actDeal(n){
   G.notoriety.business++;G.notoriety.shadow++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
   const p=G.p,risk=calcRisk('deal',n);
   if(n.sub!=='supplier')return{ok:false,text:`${n.name} isn't a supplier.`};
-  const val=200+p.tier*150+RNG.int(0,200),cost=Math.floor(val*.4);
+  const val=200+p.tier*150+RNG.int(0,200);let cost=Math.floor(val*.4);
   let cut=Math.floor(val*.6);
+  // Sympathy deal: after getting busted, supplier cuts you a break
+  if(G._sympathyDeal){cost=Math.floor(cost*.6);cut=Math.floor(cut*1.2);G._sympathyDeal=false;
+    addLog(`${n.name}: "Heard you had a rough time. This one's at cost." (Sympathy deal — lower buy-in, better cut)`,'s')}
   // Apply job pay perk
   if(G.perkJobBonus)cut=Math.round(cut*(1+G.perkJobBonus/100));
   cut=Math.round(cut*risk.payMod);
@@ -1404,12 +1415,12 @@ function actDeal(n){
   if(RNG.chance(stingPct)){
     const detect=RNG.skill(p.skills.streetSmarts,60);
     if(detect.ok){G.notoriety.shadow+=2;return{ok:true,text:`Something feels off... you spot an unmarked car. You walk away clean! (Street Smarts saved you — sting was ${Math.round(stingPct)}%)`,chg:{}}}
-    const lost=Math.floor(p.cash.dirty*.5);p.cash.dirty-=lost;
-    const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
-    addHeat(20,'sting');addRep(-20,'arrested');
-    p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
-    const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
-    return{ok:false,text:`IT'S A STING! Cops swarm in. Arrested!\nCash seized: $${lost}. Bail: $${bail}. Lost ${days} days. (Sting chance was ${Math.round(stingPct)}%)`,chg:{cash:'-'+(lost+bail),heat:'+20',rep:'-20'}};
+    // Use doArrest which now has full failure-as-story system
+    doArrest();
+    // Supplier trust drops but they might offer sympathy deal later
+    n.trust=Math.max(0,n.trust-10);
+    if(n.trust>20){G._sympathyDeal=true;addLog(`${n.name} heard you got busted. They may offer a sympathy deal next time.`,'w')}
+    return{ok:false,text:`IT'S A STING! Cops swarm in.\n(Sting chance was ${Math.round(stingPct)}%)`,chg:{}};
   }
 
   const neg=RNG.skill(p.skills.persuasion,n.suspicion);
@@ -1457,11 +1468,18 @@ function actShakedown(n){
     const b=BLK[p.block];if(b){b.ctrl.player=Math.min(100,b.ctrl.player+5);recalc(b)}
     return{ok:true,text:`${n.name} is shaken. Agrees to $${demand}/week. ${wc} witnesses. (Intimidation: ${intCheck.chance}%, rolled ${intCheck.roll})`,chg:{racket:'+$'+demand+'/wk',fear:'+30',heat:'+'+h,rep:'+10'}};
   }
-  n.nerve=Math.min(100,n.nerve+10);addRep(-3,'shakedown_fail');
+  n.nerve=Math.min(100,n.nerve+10);
   let extra='';
   if(RNG.chance(30)){addHeat(Math.round(8*risk.heatMod),'shakedown_report');extra='\nThey called the cops after you left.';}
+  // ── FAILURE AS STORY: failed shakedown reveals the landscape ──
+  // You learn their nerve, nearby businesses take note
+  n._revealed=n._revealed||{};n._revealed.intent=true;
+  // Other businesses in the block see you tried — some get nervous anyway
+  const otherCivs=Object.values(G.npcs).filter(nc=>nc.block===p.block&&nc.role==='civilian'&&nc.alive&&nc.id!==n.id&&!nc.spec);
+  if(otherCivs.length>0&&RNG.chance(35)){const weak=otherCivs.filter(nc=>nc.nerve<40);
+    if(weak.length>0){extra+=`\nBut ${weak[0].name} next door saw everything and looks scared.`;weak[0].fear=Math.min(100,weak[0].fear+10)}}
   // Counter-offer: NPC proposes lower rate
-  if(RNG.chance(40)&&!extra){
+  if(RNG.chance(45)&&!extra){
     const counter=Math.floor(demand*(.4+Math.random()*.2));
     n.fear=Math.min(100,n.fear+5);
     p.rackets.push({npcId:n.id,pay:counter,active:true,missed:0,block:p.block});
@@ -1648,12 +1666,110 @@ function wantedEncounter(){
 
 function doArrest(){
   const p=G.p,lost=Math.floor(p.cash.dirty*.5);p.cash.dirty-=lost;
-  const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
-  addHeat(15,'arrested');addRep(-15,'arrested');
+  let bail=500*(1+p.arrests);if(G._bailDiscount){bail=Math.floor(bail*.5);addLog('Your jailhouse contacts got you a reduced bail.','s')}
+  p.spend(Math.min(bail,p.total));p.arrests++;
+  addHeat(15,'arrested');
   p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
-  cascade('arrest',p.block,{success:false,failure:true});// Full arrest cascade
+  cascade('arrest',p.block,{success:false,failure:true});
   const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
   addLog(`Arrested! Cash seized: $${lost}. Bail: $${bail}. Lost ${days} days.`,'d');
+
+  // ── FAILURE AS STORY: Arrest opens doors ──
+  // 1. Street cred — getting busted and surviving earns respect
+  const streetCred=5+p.arrests*3;
+  addRep(streetCred,'jail_cred');
+  addLog(`Your arrest is all over the streets. Surviving jail earns respect. (+${streetCred} rep)`,'r');
+  G.notoriety.violent+=2;
+
+  // 2. Jailhouse connections — meet a new contact or recruit in jail
+  if(RNG.chance(50)){
+    const jailContact=new NPC({name:RNG.pick([...FIRST,...FIRST2])+' "'+RNG.pick(NICK)+'" '+RNG.pick(LAST),
+      role:'contact',sub:RNG.pick(['fence','supplier','forger']),
+      loyalty:25,trust:30,nerve:50+RNG.int(0,20),suspicion:40,hp:4,maxHp:4,
+      block:p.block,personality:RNG.pick(PERS),
+      desc:'Met them inside. They have connections.'});
+    G.npcs[jailContact.id]=jailContact;
+    if(typeof initNPCWorld==='function'){const br=BREG[p.block];if(br){for(let i=0;i<30;i++){const tx=br.x+RNG.int(1,br.w-2),ty=br.y+RNG.int(1,br.h-2);if(walkable(tx,ty)){jailContact.wx=tx*T+T/2;jailContact.wy=ty*T+T/2;break}}}}
+    addLog(`You met ${jailContact.name} in lockup. New ${jailContact.sub} contact on the outside.`,'s');
+  }
+
+  // 3. Heat actually drops after arrest — you've "paid your dues"
+  addHeat(-10,'served_time');
+  addLog('Having served time, police scrutiny eases slightly. (-10 heat)','s');
+
+  // 4. Rivals see an opening — but sometimes that backfires on THEM
+  if(RNG.chance(30)){
+    const r=RNG.pick(Object.values(G.rivals));
+    if(r.phase==='provoke'||r.phase==='attack'){
+      // Rival overextends while you're inside, gets hit by cops too
+      r.str=Math.max(10,r.str-8);addLog(`While you were locked up, ${r.name} overextended and cops hit them too. Their strength dropped.`,'s');
+    }
+  }
+
+  // 5. Cellmate intel — learn something useful
+  if(p.arrests>=2){
+    const intelTypes=[
+      ()=>{addLog('A cellmate whispers about a corrupt judge. Future bail costs halved.','r');G._bailDiscount=true},
+      ()=>{const r=RNG.pick(Object.values(G.rivals));addLog(`Cellmate says ${r.name}'s supply chain runs through the docks. Useful info.`,'s')},
+      ()=>{addLog('You learned lock-picking techniques from an old con. Operations +1.','r');p.skills.operations=Math.min(8,p.skills.operations+1)},
+      ()=>{addLog('A former cop in the cell tells you how investigations work. Street Smarts +1.','r');p.skills.streetSmarts=Math.min(8,p.skills.streetSmarts+1)},
+    ];
+    RNG.pick(intelTypes)();
+  }
+}
+
+// Apply bail discount from cellmate intel
+const _origBail=()=>500;// Placeholder — actual bail calc is inline
+
+// ─── REVENGE SYSTEM ──────────────────────────────────────
+// When betrayed, a revenge mission becomes available
+function checkRevengeOpportunity(){
+  if(!G._revengeTarget)return;
+  const rt=G._revengeTarget;
+  const traitor=G.npcs[rt.id];
+  if(!traitor||!traitor.alive)return;
+  // Traitor shows up in rival territory after a few days
+  if(G.time.day-rt.day>=5&&!rt.located){
+    rt.located=true;
+    const rblk=RNG.pick(Object.values(BLK).filter(b=>b.ctrl.kostarov>30||b.ctrl.dragos>30||b.ctrl.vega>30));
+    if(rblk){traitor.block=rblk.id;
+      addLog(`Word reaches you: ${rt.name} was spotted in ${rblk.name}. Working for the enemy.`,'w')}
+  }
+}
+
+function doRevenge(traitorId){
+  const traitor=G.npcs[traitorId];if(!traitor)return;
+  const p=G.p;
+  showModal(`Revenge: ${traitor.name}`,`You've tracked down ${traitor.name}. They're alone, looking over their shoulder. What do you do?`,
+    [{label:'Confront them',sub:'Intimidation check. Success: they spill everything and beg forgiveness.'},
+     {label:'Recruit them back',sub:'Persuasion check. They know your operation inside-out — valuable if loyal.'},
+     {label:'Send a message',sub:'Destroy their reputation with the rival. +Rep, +fear across the block.'},
+     {label:'Let them go',sub:'Show mercy. Sometimes that\'s the most powerful move.'}]);
+  modalCB=i=>{
+    if(i===0){const ck=RNG.skill(p.skills.intimidation,traitor.nerve);
+      if(ck.ok){addRep(20,'revenge');addLog(`${traitor.name} breaks down. They tell you everything about the rival's operation.`,'r');
+        const r=Object.values(G.rivals).find(x=>traitor.worksFor===x.id);
+        if(r){addLog(`Intel gained: ${r.name} strength is ${r.str}, planning ${r.phase} phase.`,'s');r.str=Math.max(10,r.str-10)}
+        traitor.alive=false;G._revengeTarget=null;G.notoriety.violent+=5}
+      else{addLog(`${traitor.name} fights back! You take a hit but escape. They'll be more careful now.`,'d');p.hp=Math.max(1,p.hp-1);traitor.nerve+=20}
+    }else if(i===1){const ck=RNG.skill(p.skills.persuasion,60);
+      if(ck.ok&&p.crew.length<p.crewSlots){traitor.role='crew';traitor.worksFor='player';traitor.loyalty=15;traitor.snitch=false;
+        p.crew.push(traitor);G._revengeTarget=null;
+        addLog(`${traitor.name} is back. Low loyalty, but they know the rival's secrets. Risky.`,'s');G.notoriety.cunning+=5}
+      else{addLog(`${traitor.name}: "I can't come back. They'd kill me." The offer is rejected.`,'w')}
+    }else if(i===2){addRep(15,'message_sent');addHeat(5,'revenge');
+      spreadFear(traitor.block,20,traitor.id);
+      addLog(`You made an example of ${traitor.name}. Everyone in ${BLK[traitor.block]?.name||'the block'} knows what happens to traitors.`,'r');
+      G.notoriety.violent+=3;G._revengeTarget=null;
+    }else{addRep(5,'mercy');G.notoriety.cunning+=2;
+      traitor.loyalty=20;traitor.grudge=false;
+      addLog(`You let ${traitor.name} go. The streets are confused — is it weakness or strength? Only time will tell.`,'st');
+      // Some NPCs respect the mercy
+      Object.values(G.npcs).filter(n=>n.block===traitor.block&&n.alive).forEach(n=>{if(RNG.chance(30))n.loyalty=Math.min(100,n.loyalty+5)});
+      G._revengeTarget=null;
+    }
+    render();updateHUD();
+  };
 }
 
 // ─── MILESTONE CHECK ──────────────────────────────────────
@@ -2060,17 +2176,57 @@ function policeRaid(){
 
 function executeRaid(partial=false){
   const p=G.p;const severity=partial?0.5:1;
-  // Seize dirty cash
   const seized=Math.floor(p.cash.dirty*0.3*severity);p.cash.dirty-=seized;
-  // Raid fronts
-  for(const f of p.fronts){if(!f.raided&&RNG.chance(40*severity)){f.raided=true;f.cooldown=5;addLog(`Your ${f.type} was raided and shut down!`,'d')}}
-  // Disrupt rackets
-  p.rackets.forEach(r=>{if(r.active&&RNG.chance(30*severity)){r.missed+=2;addLog(`Racket disrupted by police action.`,'w')}});
-  // Territory loss
+  let frontsRaided=0;
+  for(const f of p.fronts){if(!f.raided&&RNG.chance(40*severity)){f.raided=true;f.cooldown=5;frontsRaided++;addLog(`Your ${f.type} was raided and shut down!`,'d')}}
+  let racketsHit=0;
+  p.rackets.forEach(r=>{if(r.active&&RNG.chance(30*severity)){r.missed+=2;racketsHit++;addLog(`Racket disrupted by police action.`,'w')}});
   Object.values(BLK).filter(b=>b.ctrl.player>0).forEach(b=>{const loss=Math.floor(5*severity);b.ctrl.player=Math.max(0,b.ctrl.player-loss);recalc(b)});
-  addHeat(Math.floor(10*severity),'raid_aftermath');
   addLog(`Raid damage: $${seized} seized${partial?' (partial raid)':''}.`,'d');
   E.emit('money');
+
+  // ── FAILURE AS STORY: Raids create opportunities ──
+  // 1. Heat drops significantly after a raid — cops consider the case "closed"
+  const heatDrop=Math.floor(15*severity);
+  addHeat(-heatDrop,'case_closed');
+  addLog(`The raid is over. With evidence seized, police attention eases. (-${heatDrop} heat)`,'s');
+
+  // 2. Public sympathy — civilians see cops as heavy-handed
+  if(severity>=0.8){
+    const civs=Object.values(G.npcs).filter(n=>n.block===p.block&&n.role==='civilian'&&n.alive);
+    civs.forEach(n=>{n.loyalty=Math.min(100,n.loyalty+3);n.fear=Math.max(0,n.fear-5)});
+    if(civs.length>0)addLog('Locals saw the raid. Some think the cops went too far. Block loyalty rises.','s');
+  }
+
+  // 3. Rivals also disrupted — cops don't just raid YOU
+  if(RNG.chance(35)){
+    const r=RNG.pick(Object.values(G.rivals));
+    r.str=Math.max(10,r.str-5);
+    const rblks=Object.values(BLK).filter(b=>b.ctrl[r.id]>20);
+    if(rblks.length){const rb=RNG.pick(rblks);rb.ctrl[r.id]=Math.max(0,rb.ctrl[r.id]-10);recalc(rb)}
+    addLog(`The crackdown hit ${r.name} too! Their operation took damage.`,'s');
+  }
+
+  // 4. Insurance angle — raided fronts may get "insurance" payout (clean money)
+  if(frontsRaided>0&&RNG.chance(40)){
+    const payout=Math.floor(1000*frontsRaided);
+    p.addClean(payout);
+    addLog(`Insurance claim on raided business${frontsRaided>1?'es':''}. +$${payout} clean cash.`,'r');
+  }
+
+  // 5. Rebuild stronger — raided fronts reopen with bonus capacity
+  for(const f of p.fronts){if(f.raided){f._raidBonus=true}}// Flagged for bonus on reopen
+
+  // 6. Rep from surviving — you got raided and you're still standing
+  if(!partial){addRep(8,'survived_raid');addLog('You survived a full raid. The streets notice. (+8 rep)','r')}
+
+  // 7. Disrupted rackets may self-resolve — scared NPCs pay extra when it's over
+  if(racketsHit>0){
+    setTimeout(()=>{
+      p.rackets.filter(r=>r.active&&r.missed>0).forEach(r=>{
+        const n=G.npcs[r.npcId];if(n&&n.fear>40){r.missed=0;addLog(`${n.name} paid up immediately after the raid. Fear works.`,'s')}
+      });updateHUD()},8000);
+  }
 }
 
 // Surprise opportunity: a one-time high-value event
@@ -2229,12 +2385,37 @@ function dayTick(){
   for(const c of[...G.p.crew]){
     if(c.loyalty<20){c.betrayDays++;
       if(c.betrayDays>=14&&RNG.chance((20-c.loyalty)*3)){
-        addLog(`BETRAYAL! ${c.name} turned against you!`,'d');
+        const traitorName=c.name;const traitorId=c.id;
+        addLog(`BETRAYAL! ${traitorName} turned against you!`,'d');
         G.p.crew=G.p.crew.filter(x=>x.id!==c.id);c.worksFor='kostarov';c.snitch=true;c.role='rival';
-        addHeat(25,'betrayal');addRep(-15,'betrayal');
+        addHeat(25,'betrayal');
         G.p.crew.forEach(x=>x.loyalty=Math.max(0,x.loyalty-5));
         G.betrayalSurvived=true;
         cascade('betrayal',G.p.block,{success:false,failure:true});
+
+        // ── FAILURE AS STORY: Betrayal creates opportunities ──
+        // 1. Street rep — surviving betrayal shows you're hard to kill
+        addRep(10,'betrayal_survivor');
+        addLog(`Word spreads that you survived ${traitorName}'s betrayal. You're tougher than they thought. (+10 rep)`,'r');
+
+        // 2. Revenge mission available
+        G._revengeTarget={id:traitorId,name:traitorName,day:G.time.day};
+        addLog(`${traitorName} is out there, working for the enemy. Track them down for revenge — or let it go.`,'w');
+
+        // 3. Remaining crew rallies — loyalty boost for survivors
+        G.p.crew.forEach(x=>{if(x.loyalty>=30){x.loyalty=Math.min(100,x.loyalty+8);
+          addLog(`${x.name} is furious about the betrayal. Loyalty +8 — "I'll never flip."`,'s')}});
+
+        // 4. Rival who recruited the traitor reveals intelligence
+        if(RNG.chance(40)){
+          const r=RNG.pick(Object.values(G.rivals));
+          addLog(`The betrayal exposed a crack in ${r.name}'s operation. You learn their strength is ${r.str>50?'formidable':'weakening'}.`,'s');
+        }
+
+        // 5. Some NPCs sympathize — block loyalty bump
+        const civs=Object.values(G.npcs).filter(n=>n.block===G.p.block&&n.role==='civilian'&&n.alive);
+        civs.forEach(n=>{if(n.mood==='friendly'||n.loyalty>40){n.loyalty=Math.min(100,n.loyalty+5)}});
+        if(civs.length>0)addLog('Some locals sympathize with your situation. Block loyalty rises.','s');
       }
     }else c.betrayDays=0;
   }
@@ -2254,8 +2435,8 @@ function dayTick(){
   autoAssignBodyguards();// Auto bodyguard flanking
   checkRivalBetrayal();// Hidden rival deal-breaking
   processInvestigation();// Hidden police investigations
-  // Start hidden investigations occasionally
   if(G.p.heat>35&&!G._investigation&&RNG.chance(8))startHiddenInvestigation();
+  checkRevengeOpportunity();// Track revenge targets
   // Daily cascade check: heat spillover + economic pattern detection
   cascade('daily_tick',G.p.block,{});
   // Cop presence natural decay (prevents permanent escalation)
@@ -2296,7 +2477,11 @@ function weekTick(){
   // Front income + reset
   for(const f of p.fronts){
     if(!f.raided){p.addClean(f.legit);inc+=f.legit;f.washed=0}
-    else{f.cooldown--;if(f.cooldown<=0){f.raided=false;addLog(`${f.type} back in operation.`,'i')}}
+    else{f.cooldown--;if(f.cooldown<=0){f.raided=false;
+      // Raided fronts reopen with bonus — rebuilt stronger
+      if(f._raidBonus){f.cap=Math.floor(f.cap*1.15);f.legit=Math.floor(f.legit*1.1);f._raidBonus=false;
+        addLog(`${f.type} reopens with improved capacity (+15%) and income (+10%). Rebuilt stronger.`,'r')}
+      else addLog(`${f.type} back in operation.`,'i')}}
   }
   // Territory income
   for(const b of Object.values(BLK)){if(b.ctrl.player>=50){const ti=Math.floor(b.ctrl.player*2);p.addDirty(ti);inc+=ti}}
@@ -2500,6 +2685,10 @@ function showNPC(id){
     const rdot=a.id==='talk'?'low':risk.level;
     if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')" onmouseenter="showForecast('${a.id}','${n.id}')" onmouseleave="hideForecast()"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
     else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
+  }
+  // Revenge button — if this is the traitor
+  if(G._revengeTarget&&G._revengeTarget.id===n.id&&G._revengeTarget.located){
+    h+=`<button class="abtn" style="border-color:var(--red);color:var(--red);background:rgba(255,0,0,.1)" onclick="closeNPC();doRevenge('${n.id}')">⚔ Revenge on ${n.name}</button>`;
   }
   // Rival meeting button
   if(n.role==='rival'&&n.worksFor&&G.rivals[n.worksFor]){
