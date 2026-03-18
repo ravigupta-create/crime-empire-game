@@ -364,6 +364,7 @@ class Player{
     this.skillPts=0;this.inv=[];this.crewSlots=1;this.crew=[];
     this.safeHouses=[];this.fronts=[];this.rackets=[];this.contacts=['marcus_fence'];
     this.arrests=0;this.block='row_a';this.district='the_row';
+    this.snipers=0;// Sniper count — stationed on rooftops
   }
   get total(){return this.cash.dirty+this.cash.clean}
   addDirty(n){this.cash.dirty+=n;E.emit('money')}
@@ -931,6 +932,13 @@ function strategicActions(){
       sub:`Pay $${grudgeCost} to settle ${grudgeNpcs.length} grudge${grudgeNpcs.length>1?'s':''}. Removes sabotage/report risk.`,
       forecast:{reward:['Remove all local grudges'],risk:[`Costs $${grudgeCost}`],short:['Stop grudge actions (sabotage, reports, robbery)'],long:['Stabilizes your block operations']}});
   }
+  // Hire Sniper — tier 5+
+  if(G.p.tier>=5){
+    const snCost=5000;
+    acts.push({id:'hire_sniper',label:`Hire Sniper ($${snCost})`,on:G.p.canAfford(snCost),
+      sub:`Station a rooftop sniper in your territory. Auto-targets rival gang members. Currently: ${G.p.snipers||0} snipers.`,
+      forecast:{reward:['Sniper auto-attacks rivals in your blocks','Rival strength degrades over time'],risk:[`Costs $${snCost}`,'+heat when sniper fires'],short:['Immediate protection'],long:['Rivals avoid your territory']}});
+  }
   return acts;
 }
 
@@ -963,6 +971,18 @@ function doStrategicAction(id){
         const did=G.p.district;const dblks=DIST[did]?.blocks||[];
         dblks.forEach(bid=>{const b=BLK[bid];if(b)b.cops=Math.max(5,b.cops-5)});
         addLog(`Precinct bribed. -15 heat, cop presence reduced across ${DIST[did]?.name}.`,'s');G.notoriety.cunning+=2}
+      break;}
+    case'hire_sniper':{
+      if(!G.p.spend(5000))return;
+      G.p.snipers=(G.p.snipers||0)+1;
+      // Spawn visible sniper NPC
+      const sn=new NPC({name:RNG.pick([...FIRST,...FIRST2])+' "'+RNG.pick(NICK)+'" '+RNG.pick(LAST),
+        role:'crew',sub:'sniper',spec:'sniper',loyalty:70,nerve:85,hp:4,maxHp:4,
+        block:G.p.block,worksFor:'player',salary:200,personality:'paranoid',
+        desc:'Rooftop sniper. Covers your operations.'});
+      G.npcs[sn.id]=sn;G.p.crew.push(sn);
+      if(typeof PW!=='undefined'&&typeof BREG!=='undefined'){const br=BREG[G.p.block];if(br){for(let i=0;i<30;i++){const tx=br.x+RNG.int(1,br.w-2),ty=br.y+RNG.int(1,br.h-2);if(walkable(tx,ty)){sn.wx=tx*T+T/2;sn.wy=ty*T+T/2;break}}}}
+      addLog(`Sniper hired and positioned on rooftops. Total snipers: ${G.p.snipers}.`,'r');G.notoriety.violent+=3;
       break;}
     case'payoff_grudges':{
       const grudgeNpcs=Object.values(G.npcs).filter(n=>n.grudge&&n.block===p.block&&n.alive);
@@ -1632,6 +1652,7 @@ function chainNPCConflict(){
 
 // ─── WANTED SYSTEM ────────────────────────────────────────
 function updateWanted(){
+  if(G._aboveTheLaw){G.wanted.active=false;return}
   const p=G.p;
   if(p.heat>60)G.highHeatDays++;else G.highHeatDays=Math.max(0,G.highHeatDays-1);
   if(!G.wanted.active&&((p.heat>50&&p.arrests>=3)||p.heat>70||G.highHeatDays>=3)){
@@ -3052,158 +3073,332 @@ function checkLair(){if(G.p.tier>=4&&!LAIR.unlocked){LAIR.unlocked=true;addLog('
   for(let dy=0;dy<3;dy++)for(let dx=0;dx<4;dx++){if(LAIR.ty+dy<WH&&LAIR.tx+dx<WW)tiles[LAIR.ty+dy][LAIR.tx+dx]=6}
 }}
 
-// ─── RENDERER ─────────────────────────────────────────────
-const TCOL={0:'#2a2a35',1:'#333340',2:'#1e1e28',3:'#282838',4:'#18181f',5:'#1a3a5a',6:'#2a2820'};
-const DCOL={the_row:'#251a1a',the_docks:'#1a2025',old_quarter:'#25201a',midtown:'#1a1a25',the_strip:'#251a25',uptown:'#1a2520'};
+// ─── SNIPER SYSTEM ────────────────────────────────────────
+// Snipers are stationed on rooftops in controlled blocks. They auto-target rival NPCs.
+function updateSnipers(){
+  if(!G.p.snipers||G.p.snipers<=0)return;
+  const t=Date.now();if(G._lastSnipe&&t-G._lastSnipe<5000)return;// 5 sec cooldown
+  // Find rival NPCs near player's blocks
+  const targets=Object.values(G.npcs).filter(n=>n.role==='rival'&&n.alive&&BLK[n.block]?.ctrl?.player>=40);
+  if(targets.length===0)return;
+  const tgt=RNG.pick(targets);
+  if(RNG.chance(40+G.p.skills.operations*5)){// Hit chance
+    tgt.hp-=2;G._lastSnipe=t;
+    G._sniperTrails=G._sniperTrails||[];
+    G._sniperTrails.push({x1:PW.x+RNG.int(-60,60),y1:PW.y-100,x2:tgt.wx,y2:tgt.wy,t:t});
+    if(tgt.hp<=0){tgt.alive=false;addLog(`Sniper eliminated ${tgt.name}!`,'r');addHeat(8,'sniper');addRep(10,'sniper_kill');
+      const r=Object.values(G.rivals).find(rv=>tgt.worksFor===rv.id);if(r)r.str=Math.max(5,r.str-5)}
+    else{addLog(`Sniper hit ${tgt.name}! (-2 HP)`,'s');addHeat(3,'sniper')}
+  }
+}
+
+// ─── RENDERER (UPGRADED) ─────────────────────────────────
+const TCOL={0:'#2a2a38',1:'#353545',2:'#1a1a26',3:'#252535',4:'#151520',5:'#1a3a5a',6:'#2a2820'};
 
 function renderWorld(ctx,cvs){
   ctx.clearRect(0,0,cvs.width,cvs.height);
   const sx=Math.floor(CAM.x/T),sy=Math.floor(CAM.y/T);
   const ex=Math.min(WW,sx+Math.ceil(cvs.width/T)+2);
   const ey=Math.min(WH,sy+Math.ceil(cvs.height/T)+2);
+  const isNight=G.time.hr>=18||G.time.hr<6;
 
-  // Draw tiles
+  // Draw tiles with detail
   for(let y=Math.max(0,sy);y<ey;y++){
     for(let x=Math.max(0,sx);x<ex;x++){
       const t=tiles[y][x];
       const px=x*T-CAM.x,py=y*T-CAM.y;
-      // District tint
-      const bid=worldToBlock(x*T,y*T);const br=BREG[bid];
-      ctx.fillStyle=t===6?'#3a3520':TCOL[t]||'#1e1e28';
+      ctx.fillStyle=t===6?'#3a3520':TCOL[t]||'#1a1a26';
       ctx.fillRect(px,py,T,T);
-      // Building windows
-      if(t===2&&x%3===1&&y%3===1){
-        ctx.fillStyle=(G.time.hr>=18||G.time.hr<6)?'rgba(255,200,50,.3)':'rgba(50,50,80,.3)';
-        ctx.fillRect(px+4,py+4,T-8,T-8);
+      // Road markings
+      if(t===0){
+        if(y%10===0&&x%4===2){ctx.fillStyle='rgba(255,255,100,.12)';ctx.fillRect(px+6,py+7,4,2)}// Dashed center line
+        if(x%10===0&&y%4===2){ctx.fillStyle='rgba(255,255,100,.12)';ctx.fillRect(px+7,py+6,2,4)}
+        // Puddles at night
+        if(isNight&&(x+y*7)%23===0){ctx.fillStyle='rgba(100,150,255,.08)';ctx.fillRect(px+2,py+2,T-4,T-4)}
       }
-      // Lair highlight
-      if(t===6&&LAIR.unlocked){ctx.strokeStyle='#ffd700';ctx.lineWidth=1;ctx.strokeRect(px,py,T,T)}
+      // Sidewalk texture
+      if(t===1){ctx.fillStyle='rgba(255,255,255,.03)';if((x+y)%2===0)ctx.fillRect(px,py,T,1)}
+      // Building windows — varied sizes, some lit
+      if(t===2){
+        const seed=(x*31+y*17)%100;
+        if(seed<30){// Window
+          const lit=isNight&&seed<20;
+          ctx.fillStyle=lit?`rgba(255,${180+seed},50,.4)`:'rgba(40,40,60,.4)';
+          const wx=3+seed%3,wy=3+seed%4,ww=T-6-seed%3,wh=T-6-seed%4;
+          ctx.fillRect(px+wx,py+wy,ww,wh);
+          if(lit){ctx.fillStyle=`rgba(255,200,100,.06)`;ctx.fillRect(px+wx-2,py+wh+wy,ww+4,4)}// Light spill
+        }
+        // AC units, antennas on some roofs
+        if(seed>90){ctx.fillStyle='#333';ctx.fillRect(px+2,py,4,3)}
+      }
+      // Wall detail — cracks, graffiti marks
+      if(t===3){
+        const seed=(x*13+y*29)%100;
+        if(seed<8){ctx.fillStyle='rgba(200,50,50,.15)';ctx.fillRect(px+4,py+8,3,2)}// Graffiti
+        if(seed>95){ctx.fillStyle='rgba(0,0,0,.15)';ctx.fillRect(px+6,py+2,1,T-4)}// Crack
+      }
+      // Alley trash, dumpsters
+      if(t===4){
+        const seed=(x*7+y*11)%50;
+        if(seed<5){ctx.fillStyle='#2a3a2a';ctx.fillRect(px+2,py+6,6,5)}// Dumpster
+        if(seed>45){ctx.fillStyle='rgba(80,70,50,.3)';ctx.fillRect(px+RNG.int(1,8),py+RNG.int(1,8),3,3)}// Trash
+      }
+      // Water animation
+      if(t===5){const wave=Math.sin((x*0.5+Date.now()*0.002))*2;ctx.fillStyle='rgba(100,160,220,.08)';ctx.fillRect(px,py+6+wave,T,2)}
+      // Lair glow
+      if(t===6&&LAIR.unlocked){ctx.strokeStyle=`rgba(255,215,0,${.4+Math.sin(Date.now()*.003)*.2})`;ctx.lineWidth=1;ctx.strokeRect(px,py,T,T)}
+    }
+  }
+
+  // Streetlights at night
+  if(isNight){
+    for(let y=Math.max(0,sy);y<ey;y+=5){
+      for(let x=Math.max(0,sx);x<ex;x+=8){
+        if(tiles[y]?.[x]===1){// Sidewalk
+          const lpx=x*T-CAM.x+T/2,lpy=y*T-CAM.y;
+          const grad=ctx.createRadialGradient(lpx,lpy,0,lpx,lpy,30);
+          grad.addColorStop(0,'rgba(255,220,150,.08)');grad.addColorStop(1,'transparent');
+          ctx.fillStyle=grad;ctx.fillRect(lpx-30,lpy-30,60,60);
+          ctx.fillStyle='#aa8844';ctx.fillRect(lpx-1,lpy-6,2,6);// Pole
+          ctx.fillStyle='#ffdd99';ctx.fillRect(lpx-1,lpy-7,2,1);// Lamp
+        }
+      }
     }
   }
 
   // Territory overlay
   for(const[bid,br]of Object.entries(BREG)){
-    const blk=BLK[bid];if(!blk||blk.ctrl.player<10)continue;
+    const blk=BLK[bid];if(!blk)continue;
     const px=br.x*T-CAM.x,py=br.y*T-CAM.y;
-    ctx.fillStyle=`rgba(74,158,255,${Math.min(.12,blk.ctrl.player*.0012)})`;
-    ctx.fillRect(px,py,br.w*T,br.h*T);
+    if(blk.ctrl.player>10){ctx.fillStyle=`rgba(74,158,255,${Math.min(.1,blk.ctrl.player*.001)})`;ctx.fillRect(px,py,br.w*T,br.h*T)}
+    // Rival territory tint
+    for(const rid of['kostarov','dragos','vega']){
+      if(blk.ctrl[rid]>20){const rc=rid==='kostarov'?'255,50,50':rid==='dragos'?'255,140,0':'180,50,255';
+        ctx.fillStyle=`rgba(${rc},${Math.min(.08,blk.ctrl[rid]*.0008)})`;ctx.fillRect(px,py,br.w*T,br.h*T)}
+    }
   }
 
-  // Collect all sprites for y-sorting
+  // Sniper trails
+  if(G._sniperTrails){
+    const now=Date.now();G._sniperTrails=G._sniperTrails.filter(s=>now-s.t<800);
+    for(const s of G._sniperTrails){
+      const a=1-(now-s.t)/800;
+      ctx.strokeStyle=`rgba(255,50,50,${a})`;ctx.lineWidth=1;ctx.setLineDash([4,4]);
+      ctx.beginPath();ctx.moveTo(s.x1-CAM.x,s.y1-CAM.y);ctx.lineTo(s.x2-CAM.x,s.y2-CAM.y);ctx.stroke();
+      ctx.setLineDash([]);
+      // Impact flash
+      if(now-s.t<200){ctx.fillStyle=`rgba(255,100,50,${a})`;ctx.beginPath();ctx.arc(s.x2-CAM.x,s.y2-CAM.y,4,0,Math.PI*2);ctx.fill()}
+    }
+  }
+
+  // Sprites y-sorted
   const sprites=[];
   for(const n of Object.values(G.npcs)){
     if(!n.alive||n.wx===undefined)continue;
-    const dx=n.wx-PW.x,dy=n.wy-PW.y;
-    if(Math.abs(dx)>cvs.width&&Math.abs(dy)>cvs.height)continue;// cull distant
+    if(Math.abs(n.wx-PW.x)>cvs.width*.7&&Math.abs(n.wy-PW.y)>cvs.height*.7)continue;
     sprites.push({type:'npc',n,y:n.wy});
   }
   sprites.push({type:'player',y:PW.y});
   sprites.sort((a,b)=>a.y-b.y);
-
-  for(const s of sprites){
-    if(s.type==='player')drawPlayer(ctx,cvs);
-    else drawNPC(ctx,s.n,cvs);
-  }
+  for(const s of sprites){if(s.type==='player')drawPlayer(ctx,cvs);else drawNPC(ctx,s.n,cvs)}
 
   // E prompt
   let nearNPC=null,nearD=IDIST;
-  for(const n of Object.values(G.npcs)){
-    if(!n.alive)continue;
-    const dx=n.wx-PW.x,dy=n.wy-PW.y,d=Math.sqrt(dx*dx+dy*dy);
-    if(d<nearD){nearD=d;nearNPC=n}
-  }
+  for(const n of Object.values(G.npcs)){if(!n.alive)continue;const dx=n.wx-PW.x,dy=n.wy-PW.y,d=Math.sqrt(dx*dx+dy*dy);if(d<nearD){nearD=d;nearNPC=n}}
   if(nearNPC&&!G.paused){
-    const px=nearNPC.wx-CAM.x,py=nearNPC.wy-CAM.y-22;
-    ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(px-20,py-6,40,14);
-    ctx.strokeStyle='#4a9eff';ctx.lineWidth=1;ctx.strokeRect(px-20,py-6,40,14);
-    ctx.fillStyle='#4a9eff';ctx.font='9px "JetBrains Mono",monospace';ctx.textAlign='center';
+    const px=nearNPC.wx-CAM.x,py=nearNPC.wy-CAM.y-24;
+    ctx.fillStyle='rgba(0,0,0,.8)';const tw=46;ctx.fillRect(px-tw/2,py-7,tw,15);
+    ctx.strokeStyle='#4a9eff';ctx.lineWidth=1;ctx.strokeRect(px-tw/2,py-7,tw,15);
+    ctx.fillStyle='#4a9eff';ctx.font='bold 9px "JetBrains Mono",monospace';ctx.textAlign='center';
     ctx.fillText('[E] Talk',px,py+4);
   }
 
   // Day/night overlay
   const hr=G.time.hr;let nightAlpha=0;
-  if(hr>=20||hr<5)nightAlpha=.35;
-  else if(hr>=18)nightAlpha=(hr-18)/2*.35;
-  else if(hr<7)nightAlpha=Math.max(0,(7-hr)/2*.35);
-  if(nightAlpha>0){ctx.fillStyle=`rgba(0,0,30,${nightAlpha})`;ctx.fillRect(0,0,cvs.width,cvs.height)}
+  if(hr>=20||hr<5)nightAlpha=.32;else if(hr>=18)nightAlpha=(hr-18)/2*.32;else if(hr<7)nightAlpha=Math.max(0,(7-hr)/2*.32);
+  if(nightAlpha>0){ctx.fillStyle=`rgba(5,5,25,${nightAlpha})`;ctx.fillRect(0,0,cvs.width,cvs.height)}
+  // Dawn/dusk warm tint
+  if((hr>=6&&hr<8)||(hr>=17&&hr<19)){ctx.fillStyle='rgba(255,120,50,.04)';ctx.fillRect(0,0,cvs.width,cvs.height)}
 
   // Heat vignette
-  if(G.p.heat>50){
-    const a=(G.p.heat-50)/100*.3;
-    const grad=ctx.createRadialGradient(cvs.width/2,cvs.height/2,cvs.width*.3,cvs.width/2,cvs.height/2,cvs.width*.7);
-    grad.addColorStop(0,'transparent');grad.addColorStop(1,`rgba(255,0,0,${a})`);
-    ctx.fillStyle=grad;ctx.fillRect(0,0,cvs.width,cvs.height);
-  }
+  if(G.p.heat>50){const a=(G.p.heat-50)/100*.3;const grad=ctx.createRadialGradient(cvs.width/2,cvs.height/2,cvs.width*.3,cvs.width/2,cvs.height/2,cvs.width*.7);
+    grad.addColorStop(0,'transparent');grad.addColorStop(1,`rgba(255,0,0,${a})`);ctx.fillStyle=grad;ctx.fillRect(0,0,cvs.width,cvs.height)}
+  // Wanted pulse
+  if(G.wanted.active){const pulse=Math.sin(Date.now()*.005)*.15+.15;
+    ctx.fillStyle=`rgba(255,0,0,${pulse*.1})`;ctx.fillRect(0,0,cvs.width,4);ctx.fillRect(0,cvs.height-4,cvs.width,4);
+    ctx.fillRect(0,0,4,cvs.height);ctx.fillRect(cvs.width-4,0,4,cvs.height)}
 
   // Minimap
-  const mmW=100,mmH=Math.floor(WH/WW*mmW),mx=cvs.width-mmW-8,my=8;
-  ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(mx-1,my-1,mmW+2,mmH+2);
-  // Player dot
-  const ppx=mx+(PW.x/(WW*T))*mmW,ppy=my+(PW.y/(WH*T))*mmH;
-  ctx.fillStyle='#4a9eff';ctx.fillRect(ppx-1,ppy-1,3,3);
-  // NPC dots
-  for(const n of Object.values(G.npcs)){
-    if(!n.alive||n.wx===undefined)continue;
-    const nx=mx+(n.wx/(WW*T))*mmW,ny=my+(n.wy/(WH*T))*mmH;
-    ctx.fillStyle=n.role==='cop'?'#4488ff':n.role==='rival'?'#ff4444':n.worksFor==='player'?'#44cc66':'#666';
-    ctx.fillRect(nx,ny,1,1);
+  const mmW=110,mmH=Math.floor(WH/WW*mmW),mx=cvs.width-mmW-8,my=8;
+  ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(mx-2,my-2,mmW+4,mmH+4);
+  ctx.strokeStyle='rgba(74,158,255,.3)';ctx.lineWidth=1;ctx.strokeRect(mx-2,my-2,mmW+4,mmH+4);
+  // Block territory colors on minimap
+  for(const[bid,br]of Object.entries(BREG)){const blk=BLK[bid];if(!blk)continue;
+    const bx=mx+(br.x/WW)*mmW,by=my+(br.y/WH)*mmH,bw=(br.w/WW)*mmW,bh=(br.h/WH)*mmH;
+    if(blk.ctrl.player>20){ctx.fillStyle=`rgba(74,158,255,${blk.ctrl.player*.003})`;ctx.fillRect(bx,by,bw,bh)}
+    if(blk.ctrl.kostarov>20){ctx.fillStyle=`rgba(255,50,50,${blk.ctrl.kostarov*.003})`;ctx.fillRect(bx,by,bw,bh)}
   }
+  // Player
+  const ppx=mx+(PW.x/(WW*T))*mmW,ppy=my+(PW.y/(WH*T))*mmH;
+  ctx.fillStyle='#fff';ctx.fillRect(ppx-1,ppy-1,3,3);
+  ctx.fillStyle='#4a9eff';ctx.fillRect(ppx,ppy,1,1);
+  // NPC dots
+  for(const n of Object.values(G.npcs)){if(!n.alive||n.wx===undefined)continue;
+    const nx=mx+(n.wx/(WW*T))*mmW,ny=my+(n.wy/(WH*T))*mmH;
+    ctx.fillStyle=n.role==='cop'?'#4488ff':n.role==='rival'?'#ff4444':n.worksFor==='player'?'#44ff66':n.spec==='sniper'?'#ff8800':'#555';
+    ctx.fillRect(nx,ny,n.role==='cop'||n.role==='rival'?2:1,n.role==='cop'||n.role==='rival'?2:1)}
+  // Sniper icon on minimap
+  if(G.p.snipers>0){ctx.fillStyle='#ff8800';ctx.font='7px sans-serif';ctx.textAlign='left';ctx.fillText('🎯×'+G.p.snipers,mx,my+mmH+10)}
 }
 
+// ─── UPGRADED PLAYER SPRITE ──────────────────────────────
 function drawPlayer(ctx,cvs){
   const px=PW.x-CAM.x,py=PW.y-CAM.y;
-  const walk=PW.moving?Math.floor(PW.frame/8)%2:0;
+  const walk=PW.moving?Math.floor(PW.frame/6)%4:0;
+  const pw=getPower();const tier=G.p.tier;
   // Shadow
-  ctx.fillStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.ellipse(px,py+7,5,2,0,0,Math.PI*2);ctx.fill();
-  // Body
-  ctx.fillStyle='#222';ctx.fillRect(px-4,py-6,8,10);
-  // Head
-  ctx.fillStyle='#ddb088';ctx.fillRect(px-3,py-12,6,6);
+  ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(px,py+9,7,2.5,0,0,Math.PI*2);ctx.fill();
+  // Shoes
+  ctx.fillStyle='#1a1a1a';
+  const lx=walk===1?-1:walk===3?1:0,rx=walk===1?1:walk===3?-1:0;
+  ctx.fillRect(px-4+lx,py+5,3,3);ctx.fillRect(px+1+rx,py+5,3,3);
   // Legs
-  ctx.fillStyle='#1a1a2a';
-  if(walk){ctx.fillRect(px-3,py+4,3,4);ctx.fillRect(px+1,py+2,3,4)}
-  else{ctx.fillRect(px-3,py+4,3,3);ctx.fillRect(px+1,py+4,3,3)}
-  // Name
-  ctx.fillStyle='#ffd700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
-  ctx.fillText('YOU',px,py-14);
-  // Bodyguard count
+  ctx.fillStyle=tier>=5?'#1a1a2a':'#2a2a3a';
+  ctx.fillRect(px-4+lx,py+1,3,5);ctx.fillRect(px+1+rx,py+1,3,5);
+  // Body — coat gets fancier with tier
+  const coatCol=tier>=6?'#1a1a1a':tier>=4?'#252530':tier>=2?'#2a2a35':'#333340';
+  ctx.fillStyle=coatCol;ctx.fillRect(px-5,py-8,10,10);
+  // Collar / lapel detail
+  if(tier>=3){ctx.fillStyle='#444';ctx.fillRect(px-5,py-8,2,4);ctx.fillRect(px+3,py-8,2,4)}
+  // Tie at tier 4+
+  if(tier>=4){ctx.fillStyle=tier>=6?'#cc0000':'#884422';ctx.fillRect(px-1,py-7,2,5)}
+  // Shoulders broader at high tier
+  if(tier>=5){ctx.fillStyle=coatCol;ctx.fillRect(px-6,py-7,1,3);ctx.fillRect(px+5,py-7,1,3)}
+  // Arms
+  ctx.fillStyle=coatCol;
+  const armSwing=walk===1||walk===3?2:0;
+  ctx.fillRect(px-6,py-6+armSwing,2,6);ctx.fillRect(px+4,py-6-armSwing,2,6);
+  // Hands
+  ctx.fillStyle='#ddb088';ctx.fillRect(px-6,py+armSwing,2,2);ctx.fillRect(px+4,py-armSwing,2,2);
+  // Head
+  ctx.fillStyle='#ddb088';ctx.fillRect(px-3,py-14,6,6);
+  // Hair
+  ctx.fillStyle=tier>=5?'#888':'#2a2015';ctx.fillRect(px-3,py-15,6,2);
+  // Sunglasses at tier 3+
+  if(tier>=3){ctx.fillStyle='#111';ctx.fillRect(px-3,py-12,6,2)}
+  // Fedora at tier 5+
+  if(tier>=5){ctx.fillStyle='#1a1a1a';ctx.fillRect(px-4,py-17,8,2);ctx.fillRect(px-5,py-16,10,1)}
+  // Gold chain at tier 6+
+  if(tier>=6){ctx.fillStyle='#ffd700';ctx.fillRect(px-2,py-7,4,1);ctx.fillRect(px-1,py-6,2,1)}
+  // Crown glow at tier 7
+  if(tier>=7){ctx.fillStyle='rgba(255,215,0,.3)';ctx.beginPath();ctx.arc(px,py-14,10,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#ffd700';ctx.fillRect(px-3,py-19,1,2);ctx.fillRect(px-1,py-20,1,3);ctx.fillRect(px+1,py-19,1,2);ctx.fillRect(px+3,py-18,1,1)}
+
+  // Name tag
+  ctx.textAlign='center';
+  const nameTag=tier>=7?'KINGPIN':tier>=5?'BOSS':'YOU';
+  ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(px-14,py-24,28,10);
+  ctx.fillStyle=tier>=5?'#ffd700':'#4a9eff';ctx.font='bold 7px "JetBrains Mono",monospace';
+  ctx.fillText(nameTag,px,py-16);
+
+  // Bodyguard + Sniper count
   const bgCount=G.p.crew.filter(c=>c.spec==='muscle').length;
-  if(bgCount>0){ctx.fillStyle='#44cc66';ctx.font='7px sans-serif';ctx.fillText(bgCount+'x BG',px,py+14)}
+  const snCount=G.p.snipers||0;
+  let sub='';if(bgCount>0)sub+=bgCount+'×BG ';if(snCount>0)sub+='🎯'+snCount;
+  if(sub){ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(px-20,py+10,40,9);
+    ctx.fillStyle='#44cc66';ctx.font='7px sans-serif';ctx.fillText(sub.trim(),px,py+17)}
 }
 
+// ─── UPGRADED NPC SPRITES ────────────────────────────────
 function drawNPC(ctx,n,cvs){
   const px=n.wx-CAM.x,py=n.wy-CAM.y;
   if(px<-30||py<-30||px>cvs.width+30||py>cvs.height+30)return;
-  const col=n.role==='cop'?'#3366cc':n.role==='rival'?'#cc3333':n.worksFor==='player'?'#33aa55':n.role==='contact'?'#cc9933':'#888';
-  const walk=n.wstate==='walk'?Math.floor(Date.now()/200)%2:0;
-  // Shadow
-  ctx.fillStyle='rgba(0,0,0,.2)';ctx.beginPath();ctx.ellipse(px,py+5,4,1.5,0,0,Math.PI*2);ctx.fill();
-  // Body
-  ctx.fillStyle=col;ctx.fillRect(px-3,py-5,6,8);
-  // Head
-  ctx.fillStyle='#ddb088';ctx.fillRect(px-2,py-10,4,5);
-  // Legs
-  ctx.fillStyle='#333';
-  if(walk){ctx.fillRect(px-2,py+3,2,3);ctx.fillRect(px+1,py+1,2,3)}
-  else{ctx.fillRect(px-2,py+3,2,2);ctx.fillRect(px+1,py+3,2,2)}
-  // Cop hat
-  if(n.role==='cop'){ctx.fillStyle='#2244aa';ctx.fillRect(px-3,py-12,6,2)}
-  // Name label
+  const walk=n.wstate==='walk'?Math.floor(Date.now()/180)%4:0;
   const dist=Math.sqrt((PW.x-n.wx)**2+(PW.y-n.wy)**2);
-  if(dist<120){
-    ctx.fillStyle='rgba(0,0,0,.6)';
-    const nm=n.name.split(' ')[0];const tw=ctx.measureText?6*nm.length:40;
-    ctx.fillRect(px-tw/2-2,py-18,tw+4,10);
-    ctx.fillStyle='#eee';ctx.font='8px sans-serif';ctx.textAlign='center';
-    ctx.fillText(nm,px,py-10);
-    // Personality icon
-    if(n.personality&&dist<80){
+
+  // Determine colors by role
+  let bodyCol,legCol='#2a2a35',headCol='#ddb088',detail='';
+  if(n.role==='cop'){bodyCol='#2244aa';legCol='#1a1a3a';detail='cop'}
+  else if(n.role==='rival'){bodyCol='#882222';legCol='#3a1a1a';detail='rival'}
+  else if(n.worksFor==='player'){
+    if(n.spec==='muscle'){bodyCol='#225522';legCol='#1a2a1a';detail='bodyguard'}
+    else if(n.spec==='sniper'){bodyCol='#554400';legCol='#2a2a1a';detail='sniper'}
+    else{bodyCol='#2a5a2a';legCol='#1a3a1a';detail='crew'}
+  }else if(n.role==='contact'){bodyCol='#886633';legCol='#3a2a1a';detail='contact'}
+  else{bodyCol=`hsl(${(n.id.charCodeAt(4)||0)*37%360},15%,35%)`;detail='civilian'}
+
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(px,py+7,5,2,0,0,Math.PI*2);ctx.fill();
+
+  // Shoes
+  ctx.fillStyle='#1a1a1a';
+  const ls=walk===1?-1:walk===3?1:0,rs=walk===1?1:walk===3?-1:0;
+  ctx.fillRect(px-3+ls,py+4,2,2);ctx.fillRect(px+1+rs,py+4,2,2);
+  // Legs
+  ctx.fillStyle=legCol;ctx.fillRect(px-3+ls,py+1,2,4);ctx.fillRect(px+1+rs,py+1,2,4);
+  // Body
+  ctx.fillStyle=bodyCol;ctx.fillRect(px-4,py-6,8,8);
+  // Arms
+  const as=walk===1||walk===3?1:0;
+  ctx.fillRect(px-5,py-5+as,1,5);ctx.fillRect(px+4,py-5-as,1,5);
+  // Hands
+  ctx.fillStyle=headCol;ctx.fillRect(px-5,py+as,1,2);ctx.fillRect(px+4,py-as,1,2);
+  // Head
+  ctx.fillStyle=headCol;ctx.fillRect(px-3,py-11,6,5);
+  // Hair (varies by NPC)
+  const hairCol=`hsl(${(n.id.charCodeAt(2)||0)*53%360},20%,20%)`;
+  ctx.fillStyle=hairCol;ctx.fillRect(px-3,py-12,6,2);
+
+  // Role-specific details
+  if(detail==='cop'){
+    ctx.fillStyle='#3355cc';ctx.fillRect(px-4,py-13,8,2);// Hat
+    ctx.fillStyle='#ffd700';ctx.fillRect(px-1,py-5,2,1);// Badge
+    // Flashing light if chasing
+    if(G.p.heat>50&&dist<80){ctx.fillStyle=Date.now()%500<250?'rgba(255,0,0,.4)':'rgba(0,0,255,.4)';
+      ctx.beginPath();ctx.arc(px,py-14,3,0,Math.PI*2);ctx.fill()}
+  }
+  if(detail==='rival'){
+    ctx.fillStyle='#cc0000';ctx.fillRect(px-2,py-5,1,2);// Red bandana detail
+    ctx.fillRect(px+1,py-5,1,2);
+    // Scar on face for some
+    if((n.id.charCodeAt(3)||0)%3===0){ctx.fillStyle='rgba(200,100,100,.5)';ctx.fillRect(px+1,py-10,1,3)}
+  }
+  if(detail==='bodyguard'){
+    ctx.fillStyle='#1a3a1a';ctx.fillRect(px-4,py-13,8,2);// Tactical cap
+    ctx.fillStyle='#333';ctx.fillRect(px-2,py-12,4,1);// Visor
+    // Earpiece
+    ctx.fillStyle='#555';ctx.fillRect(px+3,py-10,1,2);
+  }
+  if(detail==='sniper'){
+    ctx.fillStyle='#443300';ctx.fillRect(px-4,py-13,8,2);// Boonie hat
+    // Scope glint
+    ctx.fillStyle='rgba(255,200,50,.4)';ctx.fillRect(px+4,py-4,2,1);
+    // Rifle on back
+    ctx.fillStyle='#444';ctx.fillRect(px+3,py-8,1,8);
+  }
+  if(detail==='contact'){
+    // Sunglasses
+    ctx.fillStyle='#222';ctx.fillRect(px-3,py-9,6,1);
+  }
+
+  // Name label
+  if(dist<100){
+    const nm=n.name.split(' ')[0];
+    ctx.font='8px sans-serif';const tw=ctx.measureText(nm).width;
+    ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(px-tw/2-3,py-20,tw+6,11);
+    const nameCol=n.role==='cop'?'#6688ff':n.role==='rival'?'#ff6666':n.worksFor==='player'?'#66ff88':n.role==='contact'?'#ffcc66':'#ccc';
+    ctx.fillStyle=nameCol;ctx.textAlign='center';ctx.fillText(nm,px,py-12);
+    if(n.personality&&dist<60){
       const pIcons={greedy:'$',paranoid:'!',loyal:'♥',aggressive:'⚡',cowardly:'~',cunning:'?',generous:'+',volatile:'⚠'};
-      ctx.fillStyle=col;ctx.font='7px sans-serif';ctx.fillText(pIcons[n.personality]||'',px+tw/2+4,py-10);
-    }
+      ctx.fillStyle='#aaa';ctx.font='6px sans-serif';ctx.fillText(pIcons[n.personality]||'',px+tw/2+5,py-12)}
   }
   // Witness glow
-  if(n.witness){ctx.strokeStyle='rgba(255,68,68,.5)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,py-2,8,0,Math.PI*2);ctx.stroke()}
+  if(n.witness){ctx.strokeStyle='rgba(255,68,68,.5)';ctx.lineWidth=1;ctx.setLineDash([2,2]);ctx.beginPath();ctx.arc(px,py-2,9,0,Math.PI*2);ctx.stroke();ctx.setLineDash([])}
+  // Grudge glow
+  if(n.grudge&&dist<80){ctx.strokeStyle='rgba(255,165,0,.3)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,py-2,10,0,Math.PI*2);ctx.stroke()}
+  // Mood indicator
+  if(n.mood==='terrified'&&dist<60){ctx.fillStyle='rgba(255,255,0,.5)';ctx.font='8px sans-serif';ctx.textAlign='center';ctx.fillText('!',px,py-22)}
+  if(n.mood==='hostile'&&dist<60){ctx.fillStyle='rgba(255,50,50,.5)';ctx.font='8px sans-serif';ctx.textAlign='center';ctx.fillText('⚡',px,py-22)}
 }
 
 // ─── GAME LOOP ────────────────────────────────────────────
@@ -3216,7 +3411,7 @@ function resizeCanvas(){
 
 function loop(ts){
   updateTime(ts);
-  if(!G.paused){updatePlayer();updateNPCs()}
+  if(!G.paused){updatePlayer();updateNPCs();updateSnipers()}
   updateCam(cvs);
   renderWorld(ctx,cvs);
   requestAnimationFrame(loop);
@@ -3242,36 +3437,75 @@ document.addEventListener('keydown',e=>{
 
 function applyGodMode(){
   const p=G.p;
-  p.cash.dirty=500000;p.cash.clean=500000;p.cash.stashed=200000;
-  p.rep=60000;p.tier=7;p.crewSlots=20;
-  p.hp=10;p.maxHp=10;
+  // Max cash
+  p.cash.dirty=999999;p.cash.clean=999999;p.cash.stashed=500000;
+  // Max rep & tier
+  p.rep=75000;p.tier=7;p.crewSlots=20;
+  // Max HP
+  p.hp=15;p.maxHp=15;
+  // Max skills
   p.skills={intimidation:8,persuasion:8,streetSmarts:8,operations:8,leadership:8};
-  p.skillPts=5;
+  p.skillPts=10;
+  // Clean record, zero heat
   p.arrests=0;p.heat=0;
+  // Max notoriety — all perks unlocked
   G.notoriety={violent:100,cunning:100,business:100,shadow:100};
-  // Unlock all milestones
-  for(const m of MILESTONES){G.milestonesDone[m.id]=1;m.fx()}
-  // Give fronts
+  // All milestones
+  for(const m of MILESTONES){G.milestonesDone[m.id]=1;try{m.fx()}catch(e){}}
+  // All fronts
   ['nightclub','restaurant','laundromat','car_wash'].forEach(t=>{
-    const f=FRONTS[t];p.fronts.push({type:t,cost:f.cost,cut:f.cut,cap:f.cap,legit:f.legit,washed:0,raided:false,cooldown:0});
+    const f=FRONTS[t];p.fronts.push({type:t,cost:f.cost,cut:f.cut,cap:f.cap*2,legit:f.legit*2,washed:0,raided:false,cooldown:0});
   });
-  // Recruit all named crew
+  // SNIPERS — 3 snipers on rooftops
+  p.snipers=3;
+  // Recruit all named crew + spawn extra bodyguards
   for(const n of Object.values(G.npcs)){
     if(n.spec&&n.role!=='rival'&&n.role!=='cop'){
-      n.role='crew';n.worksFor='player';n.loyalty=90;n.fear=0;n.betrayDays=0;
+      n.role='crew';n.worksFor='player';n.loyalty=95;n.fear=0;n.betrayDays=0;
       if(!p.crew.some(c=>c.id===n.id))p.crew.push(n);
     }
   }
-  // Max territory in The Row
-  ['row_a','row_b','row_c','row_d'].forEach(bid=>{BLK[bid].ctrl.player=100;recalc(BLK[bid])});
-  // Give rackets on existing civilians
-  const civs=Object.values(G.npcs).filter(n=>n.role==='civilian'&&!n.spec);
-  for(let i=0;i<Math.min(5,civs.length);i++){
-    p.rackets.push({npcId:civs[i].id,pay:500,active:true,missed:0,block:civs[i].block});
-    civs[i].fear=60;
+  // Spawn 4 extra bodyguards
+  for(let i=0;i<4;i++){
+    const bg=new NPC({name:RNG.pick([...FIRST,...FIRST2])+' "'+RNG.pick(NICK)+'" '+RNG.pick(LAST),
+      role:'crew',sub:'muscle',spec:'muscle',loyalty:90,nerve:80,hp:8,maxHp:8,
+      block:p.block,worksFor:'player',salary:0,personality:'loyal',
+      desc:'Elite bodyguard. Armed and dangerous.'});
+    G.npcs[bg.id]=bg;p.crew.push(bg);
+    // Position near player
+    if(typeof PW!=='undefined'){bg.wx=PW.x+RNG.int(-20,20);bg.wy=PW.y+RNG.int(-20,20)}
   }
+  // Spawn 2 snipers as visible crew
+  for(let i=0;i<2;i++){
+    const sn=new NPC({name:RNG.pick([...FIRST,...FIRST2])+' "'+RNG.pick(NICK)+'" '+RNG.pick(LAST),
+      role:'crew',sub:'sniper',spec:'sniper',loyalty:85,nerve:90,hp:4,maxHp:4,
+      block:p.block,worksFor:'player',salary:0,personality:'paranoid',
+      desc:'Rooftop sniper. Covers your movements.'});
+    G.npcs[sn.id]=sn;p.crew.push(sn);
+    if(typeof PW!=='undefined'){sn.wx=PW.x+RNG.int(-60,60);sn.wy=PW.y-50+RNG.int(-20,20)}
+  }
+  // Max territory EVERYWHERE
+  for(const b of Object.values(BLK)){b.ctrl.player=100;b.ctrl.kostarov=0;b.ctrl.dragos=0;b.ctrl.vega=0;recalc(b)}
+  // All rivals subjugated
+  for(const r of Object.values(G.rivals)){r.hostility=0;r.phase='passive';r.timer=999;r.str=10}
+  // Give rackets on all civilians
+  const civs=Object.values(G.npcs).filter(n=>n.role==='civilian'&&!n.spec);
+  for(let i=0;i<Math.min(10,civs.length);i++){
+    p.rackets.push({npcId:civs[i].id,pay:800,active:true,missed:0,block:civs[i].block});
+    civs[i].fear=80;civs[i].loyalty=50;
+  }
+  // All cops corrupted
+  for(const n of Object.values(G.npcs)){
+    if(n.role==='cop'){n.loyalty=60;if(!n.sub.startsWith('corrupt_'))n.sub='corrupt_'+n.sub;if(!p.contacts.includes(n.id))p.contacts.push(n.id)}
+  }
+  // Lair unlocked
   LAIR.unlocked=true;
-  addLog('GOD MODE ACTIVATED. You are the Kingpin. All districts unlocked. Max stats. Max cash.','r');
+  // Above the law — wanted system permanently disabled
+  G.wanted={active:false,intensity:0,timer:0};G.highHeatDays=0;
+  G._aboveTheLaw=true;
+  // Bail discount
+  G._bailDiscount=true;
+  addLog('GOD MODE ACTIVATED. Kingpin. $2M cash. 6 bodyguards. 3 snipers. All territory. All cops bought. All rivals crushed. Above the law.','r');
 }
 
 // ─── INIT ─────────────────────────────────────────────────
