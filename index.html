@@ -1,104 +1,1020 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crime Empire</title>
-  <link rel="stylesheet" href="css/styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crime Empire</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--panel:#12121a;--card:#1a1a28;--hover:#222235;--border:#2a2a3d;--text:#d0d0e0;--dim:#707090;--accent:#4a9eff;--red:#ff4444;--orange:#ffa500;--green:#44cc66;--gold:#ffd700;--purple:#cc88ff}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
+
+.game{display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto 1fr auto;height:100vh;gap:1px;background:var(--border)}
+
+/* ─── HUD ─── */
+.hud{grid-column:1/-1;background:var(--panel);display:flex;align-items:center;padding:8px 16px;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.hg{display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:13px}
+.hl{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.8px}
+.hv{font-weight:700}
+.hv-cash{color:var(--green)}.hv-heat{color:var(--red)}.hv-rep{color:var(--accent)}.hv-hp{color:var(--orange)}
+.heat-bar{width:80px;height:6px;background:#1a1a2a;border-radius:3px;overflow:hidden}
+.heat-fill{height:100%;border-radius:3px;transition:width .3s,background .3s}
+.tier-tag{font-size:10px;padding:1px 6px;border-radius:3px;background:#1a1a2a}
+.spacer{flex:1}
+.time-box{text-align:right;font-family:'JetBrains Mono',monospace}
+.time-big{font-size:15px;font-weight:700;color:var(--accent)}
+.time-small{font-size:10px;color:var(--dim)}
+.period{font-size:9px;padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:1px}
+.period-morning{background:#2a2a1a;color:#ffcc00}.period-afternoon{background:#2a2a1a;color:#ff8800}
+.period-night{background:#1a1a2a;color:#6688ff}.period-late_night{background:#15152a;color:#4455aa}
+.ctrls{display:flex;gap:3px}
+.cbtn,.sbtn{background:var(--card);border:1px solid var(--border);color:var(--dim);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;font-family:'JetBrains Mono',monospace}
+.cbtn:hover,.sbtn:hover{background:var(--hover);color:var(--text)}
+.sbtn.on{background:var(--accent);color:#000;border-color:var(--accent)}
+
+/* ─── Main ─── */
+.main{background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;background:var(--panel);border-bottom:1px solid var(--border)}
+.tab{flex:1;padding:10px;background:none;border:none;color:var(--dim);font-family:'Inter',sans-serif;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab:hover{color:var(--text);background:var(--card)}.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+#content{flex:1;overflow-y:auto;padding:12px}
+
+/* ─── Components ─── */
+.sec{margin-bottom:14px}
+.sec h3{font-size:14px;color:var(--accent);margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--border)}
+.sec h4{font-size:13px;color:var(--text);margin:8px 0 4px}
+.muted{color:var(--dim);font-style:italic;font-size:13px}
+.desc{color:var(--dim);font-size:12px;margin-bottom:6px}
+.row{display:flex;gap:10px;font-size:12px;color:var(--dim);margin-bottom:6px;flex-wrap:wrap}
+.row b{color:var(--accent)}
+
+.nav{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.nav-l{font-size:11px;color:var(--dim);align-self:center}
+.nbtn{padding:4px 10px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:3px;cursor:pointer;font-size:11px}
+.nbtn:hover{background:var(--hover);border-color:var(--accent)}
+.nbtn-d{border-color:var(--dim);color:var(--dim)}.nbtn-d:hover{color:var(--text)}
+
+/* NPC Cards */
+.npc{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;cursor:pointer;transition:.15s;margin-bottom:6px}
+.npc:hover{border-color:var(--accent);background:var(--hover)}
+.npc-h{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.npc-icon{font-size:16px}.npc-name{font-weight:700;font-size:13px}
+.npc-role{font-size:11px;color:var(--dim);margin-bottom:3px;text-transform:capitalize}
+.npc-stats{display:flex;gap:10px;font-size:11px;margin-bottom:3px}
+.npc-desc{font-size:11px;color:var(--dim)}
+.tag{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:600}
+.tag-r{background:rgba(255,68,68,.2);color:var(--red)}
+.tag-g{background:rgba(68,204,102,.2);color:var(--green)}
+
+/* Actions */
+.act-stats{display:flex;gap:10px;font-size:12px;padding:6px 0;margin-bottom:8px;color:var(--dim)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.abtn{padding:8px 16px;background:var(--card);border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer;font-size:12px;font-family:'Inter',sans-serif;transition:.15s}
+.abtn:hover{background:var(--accent);color:#000}
+.abtn-off{border-color:var(--border);color:var(--dim);cursor:not-allowed}
+.abtn-off:hover{background:var(--card);color:var(--dim)}
+.abtn-x{border-color:var(--dim);color:var(--dim)}.abtn-x:hover{background:var(--dim);color:var(--bg)}
+.abtn-s{padding:4px 10px;font-size:11px}
+.res{padding:10px;border-radius:4px;margin-top:8px;font-size:13px;line-height:1.6}
+.res-ok{background:rgba(68,204,102,.1);border-left:3px solid var(--green)}
+.res-bad{background:rgba(255,68,68,.1);border-left:3px solid var(--red)}
+.chg{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:11px;font-family:'JetBrains Mono',monospace}
+.chg span{padding:2px 6px;background:var(--bg);border-radius:3px}
+.chg-p{color:var(--green)}.chg-n{color:var(--red)}
+
+/* Jobs */
+.job{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px}
+.job-a{border-color:var(--accent)}
+.job-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.job-t{font-weight:700;font-size:13px}.job-p{color:var(--green);font-family:'JetBrains Mono',monospace;font-weight:700}
+.job p{font-size:12px;color:var(--dim);margin-bottom:6px}
+.job-m{display:flex;gap:10px;font-size:11px;color:var(--dim);margin-bottom:8px;flex-wrap:wrap}
+.risk{padding:1px 6px;border-radius:3px;font-weight:600;font-size:10px;text-transform:uppercase}
+.risk-low{background:rgba(68,204,102,.15);color:var(--green)}
+.risk-medium{background:rgba(255,165,0,.15);color:var(--orange)}
+.risk-high{background:rgba(255,68,68,.15);color:var(--red)}
+
+/* Map */
+.dcard{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px}
+.bgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.btile{background:var(--bg);border:2px solid var(--border);border-radius:4px;padding:6px;text-align:center;cursor:pointer;transition:.15s;position:relative}
+.btile:hover{background:var(--hover)}.btile.here{background:rgba(74,158,255,.1);border-color:var(--accent)!important}
+.bname{font-weight:700;font-size:12px}
+.bbar{height:4px;background:#1a1a2a;border-radius:2px;margin:3px 0;overflow:hidden}
+.bfill{height:100%;border-radius:2px;transition:width .3s}
+.binfo{font-size:10px;color:var(--dim)}
+.byou{position:absolute;top:2px;right:4px;font-size:8px;color:var(--accent);font-weight:700}
+.rcard{display:flex;gap:12px;align-items:center;padding:8px;background:var(--card);border-radius:4px;font-size:12px;margin-bottom:4px}
+.rname{font-weight:700;min-width:130px}
+
+/* Crew/Finance */
+.ccard{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:8px 10px;margin-bottom:6px}
+.ccard-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.ccard-n{font-weight:700}.ccard-r{font-size:11px;color:var(--dim);text-transform:capitalize}
+.ccard-s{display:flex;gap:12px;font-size:12px;margin-bottom:6px}
+.rac{display:flex;justify-content:space-between;align-items:center;border-left:3px solid;font-size:12px;padding:6px 10px;background:var(--card);border-radius:0 4px 4px 0;margin-bottom:4px}
+.frt{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;padding:6px 10px;background:var(--card);border-radius:4px;margin-bottom:4px}
+
+/* Skills */
+.skrow{display:flex;align-items:center;gap:10px;padding:8px;background:var(--card);border-radius:4px;margin-bottom:4px}
+.skinfo{flex:1}.skn{font-weight:600;font-size:13px;display:block}.skd{font-size:11px;color:var(--dim)}
+.skbar{width:100px;height:6px;background:#1a1a2a;border-radius:3px;overflow:hidden}
+.skfill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s}
+.stgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.stitem{display:flex;justify-content:space-between;padding:6px 8px;background:var(--card);border-radius:3px;font-size:12px}
+.stitem span:last-child{font-family:'JetBrains Mono',monospace;color:var(--accent)}
+
+/* Log */
+.logbar{background:var(--panel);display:flex;flex-direction:column;border-left:1px solid var(--border)}
+.loghd{padding:10px 12px;font-weight:700;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border)}
+#log{flex:1;overflow-y:auto;padding:8px}
+.le{padding:4px 8px;margin-bottom:3px;border-radius:3px;font-size:12px;line-height:1.4;border-left:2px solid transparent}
+.lt{color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:10px;margin-right:6px}
+.le-i{border-left-color:var(--dim)}.le-s{border-left-color:var(--green);background:rgba(68,204,102,.05)}
+.le-w{border-left-color:var(--orange);background:rgba(255,165,0,.05)}
+.le-d{border-left-color:var(--red);background:rgba(255,68,68,.05)}
+.le-r{border-left-color:var(--gold);background:rgba(255,215,0,.08);color:var(--gold)}
+.le-st{border-left-color:var(--purple);background:rgba(204,136,255,.05);color:var(--purple);font-style:italic}
+
+.foot{grid-column:1/-1;background:var(--panel);padding:6px 16px;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--dim);border-top:1px solid var(--border)}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--dim)}
+
+/* Random Events Modal */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;padding:20px;max-width:420px;width:90%}
+.modal h3{color:var(--accent);margin-bottom:10px}.modal p{margin-bottom:12px;font-size:13px}
+.modal .acts{margin-top:10px}
+
+@media(max-width:768px){.game{grid-template-columns:1fr}.logbar{max-height:200px}.hud{gap:8px}}
+</style>
 </head>
 <body>
-  <div class="game-container">
-
-    <!-- ─── Top Bar (HUD) ────────────────────────────── -->
-    <div class="top-bar">
-      <div class="hud-group">
-        <span class="hud-label">Cash</span>
-        <span class="hud-value cash" id="cash">$0</span>
-      </div>
-      <div class="hud-group">
-        <span class="hud-label">Heat</span>
-        <span class="hud-value heat" id="heat">0</span>
-        <div class="heat-bar-container">
-          <div class="heat-bar-fill" id="heat-bar" style="width: 0%"></div>
-        </div>
-        <span class="heat-tier" id="heat-label">Cold</span>
-      </div>
-      <div class="hud-group">
-        <span class="hud-label">Rep</span>
-        <span class="hud-value rep" id="rep">0</span>
-        <span class="heat-tier" id="rep-title">Street Rat</span>
-      </div>
-      <div class="hud-group">
-        <span class="hud-label">HP</span>
-        <span class="hud-value hp" id="hp">5/5</span>
-      </div>
-      <div class="hud-group">
-        <span class="hud-label">Crew</span>
-        <span class="hud-value" id="crew">0/1</span>
-      </div>
-
-      <div class="hud-spacer"></div>
-
-      <div class="hud-group">
-        <span class="hud-label" id="location">The Row - Block A</span>
-      </div>
-      <div class="time-display">
-        <div class="time-val" id="time">10:00 PM</div>
-        <div class="day-val" id="day">Day 1 (Monday)</div>
-      </div>
-      <span class="period night" id="period">night</span>
-
-      <div class="controls">
-        <button class="ctrl-btn" id="pause-btn" title="Pause/Resume">⏸</button>
-        <button class="speed-btn active" id="speed-1x">1x</button>
-        <button class="speed-btn" id="speed-3x">3x</button>
-        <button class="speed-btn" id="speed-5x">5x</button>
-        <button class="ctrl-btn" id="save-btn" title="Save">💾</button>
-      </div>
-    </div>
-
-    <!-- ─── Main Content Area ────────────────────────── -->
-    <div class="main-area">
-      <div class="tab-bar">
-        <button class="tab-btn active" data-tab="explore">Explore</button>
-        <button class="tab-btn" data-tab="jobs">Jobs</button>
-        <button class="tab-btn" data-tab="crew">Empire</button>
-        <button class="tab-btn" data-tab="map">Map</button>
-        <button class="tab-btn" data-tab="skills">Skills</button>
-      </div>
-      <div id="main-content"></div>
-    </div>
-
-    <!-- ─── Log Sidebar ──────────────────────────────── -->
-    <div class="log-sidebar">
-      <div class="log-header">Activity Log</div>
-      <div id="game-log"></div>
-    </div>
-
-    <!-- ─── Bottom Bar ───────────────────────────────── -->
-    <div class="bottom-bar">
-      <span>Crime Empire v0.1</span>
-      <span>|</span>
-      <span>Pure HTML/CSS/JS — Zero Dependencies — 100% Free</span>
+<div class="game">
+  <div class="hud">
+    <div class="hg"><span class="hl">Cash</span><span class="hv hv-cash" id="h-cash">$0</span></div>
+    <div class="hg"><span class="hl">Heat</span><span class="hv hv-heat" id="h-heat">0</span>
+      <div class="heat-bar"><div class="heat-fill" id="h-hbar" style="width:0%"></div></div>
+      <span class="tier-tag" id="h-htier">Cold</span></div>
+    <div class="hg"><span class="hl">Rep</span><span class="hv hv-rep" id="h-rep">0</span><span class="tier-tag" id="h-rtitle">Street Rat</span></div>
+    <div class="hg"><span class="hl">HP</span><span class="hv hv-hp" id="h-hp">5/5</span></div>
+    <div class="hg"><span class="hl">Crew</span><span class="hv" id="h-crew">0/1</span></div>
+    <div class="spacer"></div>
+    <div class="hg"><span class="hl" id="h-loc">The Row - Block A</span></div>
+    <div class="time-box"><div class="time-big" id="h-time">10:00 PM</div><div class="time-small" id="h-day">Day 1 (Monday)</div></div>
+    <span class="period period-night" id="h-period">night</span>
+    <div class="ctrls">
+      <button class="cbtn" id="btn-pause" title="Pause">⏸</button>
+      <button class="sbtn on" onclick="setSpeed(1)">1x</button>
+      <button class="sbtn" onclick="setSpeed(3)">3x</button>
+      <button class="sbtn" onclick="setSpeed(5)">5x</button>
+      <button class="cbtn" onclick="G.save()" title="Save">💾</button>
     </div>
   </div>
+  <div class="main">
+    <div class="tabs">
+      <button class="tab on" onclick="switchTab('explore',this)">Explore</button>
+      <button class="tab" onclick="switchTab('jobs',this)">Jobs</button>
+      <button class="tab" onclick="switchTab('crew',this)">Empire</button>
+      <button class="tab" onclick="switchTab('map',this)">Map</button>
+      <button class="tab" onclick="switchTab('skills',this)">Skills</button>
+    </div>
+    <div id="content"></div>
+  </div>
+  <div class="logbar"><div class="loghd">Activity Log</div><div id="log"></div></div>
+  <div class="foot"><span>Crime Empire v0.2</span><span>|</span><span>100% Free — Zero Dependencies</span></div>
+</div>
 
-  <!-- ─── Scripts (load order matters) ─────────────── -->
-  <script src="js/events.js"></script>
-  <script src="js/systems/rng.js"></script>
-  <script src="js/entities/player.js"></script>
-  <script src="js/entities/npc-data.js"></script>
-  <script src="js/entities/districts.js"></script>
-  <script src="js/systems/heat.js"></script>
-  <script src="js/systems/reputation.js"></script>
-  <script src="js/systems/economy.js"></script>
-  <script src="js/systems/npc.js"></script>
-  <script src="js/systems/territory.js"></script>
-  <script src="js/systems/time.js"></script>
-  <script src="js/systems/jobs.js"></script>
-  <script src="js/systems/interaction.js"></script>
-  <script src="js/state.js"></script>
-  <script src="js/ui/ui.js"></script>
-  <script src="js/main.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════
+// CRIME EMPIRE — Single-file playable game
+// ═══════════════════════════════════════════════════════════
+
+// ─── EVENT BUS ────────────────────────────────────────────
+const E={_l:{},on(e,f){(this._l[e]||(this._l[e]=[])).push(f)},emit(e,d={}){(this._l[e]||[]).forEach(f=>f(d))}};
+
+// ─── RNG ──────────────────────────────────────────────────
+const RNG={
+  int(a,b){return Math.floor(Math.random()*(b-a+1))+a},
+  chance(p){return Math.random()*100<p},
+  pick(a){return a[Math.floor(Math.random()*a.length)]},
+  wpick(w){const e=Object.entries(w).filter(([,v])=>v>0),t=e.reduce((s,[,v])=>s+v,0);let r=Math.random()*t;for(const[o,v]of e){r-=v;if(r<=0)return o}return e[e.length-1][0]},
+  skill(lvl,diff){const c=Math.max(10,Math.min(95,40+lvl*8-diff*.4)),r=Math.random()*100;return{ok:r<c,chance:Math.round(c),roll:Math.round(r)}}
+};
+
+// ─── DATA MODELS ──────────────────────────────────────────
+class Player{
+  constructor(){
+    this.cash={dirty:0,clean:0,stashed:0};
+    this.heat=0;this.rep=0;this.tier=1;
+    this.hp=5;this.maxHp=5;
+    this.skills={intimidation:0,persuasion:0,streetSmarts:0,operations:0,leadership:0};
+    this.skillPts=0;this.inv=[];this.crewSlots=1;this.crew=[];
+    this.safeHouses=[];this.fronts=[];this.rackets=[];this.contacts=['marcus_fence'];
+    this.arrests=0;this.block='row_a';this.district='the_row';
+  }
+  get total(){return this.cash.dirty+this.cash.clean}
+  addDirty(n){this.cash.dirty+=n;E.emit('money')}
+  addClean(n){this.cash.clean+=n;E.emit('money')}
+  spend(n){
+    if(this.total<n)return false;
+    if(this.cash.clean>=n){this.cash.clean-=n}
+    else{const d=n-this.cash.clean;this.cash.clean=0;this.cash.dirty-=d;if(d>500)E.emit('heat_add',{n:Math.floor(d/1000)+1,src:'dirty_spend'})}
+    E.emit('money');return true;
+  }
+  canAfford(n){return this.total>=n}
+}
+
+class NPC{
+  constructor(d){
+    this.id=d.id||'npc_'+Math.random().toString(36).substr(2,6);
+    this.name=d.name||'Unknown';this.role=d.role||'civilian';this.sub=d.sub||'';
+    this.loyalty=d.loyalty??30;this.fear=d.fear??0;this.trust=d.trust??30;
+    this.nerve=d.nerve??40;this.suspicion=d.suspicion??50;
+    this.hp=d.hp??3;this.maxHp=d.maxHp??3;this.alive=true;
+    this.witness=false;this.witCrime=null;
+    this.block=d.block||'row_a';this.district=d.district||'the_row';
+    this.salary=d.salary??100;this.spec=d.spec||null;
+    this.reqRep=d.reqRep??0;this.betrayDays=0;this.snitch=false;
+    this.worksFor=d.worksFor||'none';this.desc=d.desc||'';this.lastTalk=0;
+  }
+}
+
+// ─── NPC TEMPLATES ────────────────────────────────────────
+const NPCS={
+  marcus_fence:{id:'marcus_fence',name:'Marcus "The Fence" Delgado',role:'contact',sub:'fence',loyalty:35,trust:40,nerve:55,suspicion:60,hp:4,maxHp:4,block:'row_a',desc:'Runs the pawn shop. Buys stolen goods, no questions asked.'},
+  rico_supplier:{id:'rico_supplier',name:'Rico Vasquez',role:'contact',sub:'supplier',loyalty:25,trust:35,nerve:60,suspicion:55,hp:4,maxHp:4,block:'row_b',desc:'Your connect for product. Reliable but all business.'},
+  elena_forger:{id:'elena_forger',name:'Elena "Ink" Petrov',role:'contact',sub:'forger',loyalty:20,trust:45,nerve:35,suspicion:70,hp:2,maxHp:2,reqRep:50,block:'row_c',desc:'Forges documents, cleans records. Not cheap.'},
+  dex_lookout:{id:'dex_lookout',name:'Dex',role:'civilian',sub:'lookout',loyalty:30,nerve:30,suspicion:35,hp:3,maxHp:3,salary:100,spec:'lookout',block:'row_a',desc:'Washes dishes at Rusty\'s. Desperate for a way out.'},
+  vince_muscle:{id:'vince_muscle',name:'Vince "Knuckles" Tran',role:'civilian',sub:'muscle',loyalty:20,nerve:70,suspicion:25,hp:6,maxHp:6,salary:200,spec:'muscle',reqRep:100,block:'row_b',desc:'Ex-boxer. Hits hard, doesn\'t ask questions.'},
+  sara_driver:{id:'sara_driver',name:'Sara "Wheels" Okafor',role:'civilian',sub:'driver',loyalty:35,nerve:40,suspicion:45,hp:3,maxHp:3,salary:150,spec:'driver',reqRep:200,block:'docks_a',desc:'Drives like the devil. Knows every back road.'},
+  jimmy_debtor:{id:'jimmy_debtor',name:'Jimmy "Two-Shoes" Malone',role:'civilian',nerve:55,suspicion:30,hp:3,maxHp:3,block:'row_b',desc:'Owes money to the wrong people. Has a temper.'},
+  chen_shop:{id:'chen_shop',name:'Mr. Chen',role:'civilian',nerve:45,suspicion:40,hp:2,maxHp:2,block:'row_b',desc:'Corner store owner on Block B. Stubborn but honest.'},
+  officer_daniels:{id:'officer_daniels',name:'Officer Daniels',role:'cop',sub:'beat_cop',loyalty:0,nerve:50,suspicion:60,hp:5,maxHp:5,block:'row_b',desc:'Patrols The Row. Could be useful for the right price.'},
+  detective_morrison:{id:'detective_morrison',name:'Detective Morrison',role:'cop',sub:'detective',loyalty:0,nerve:70,suspicion:80,hp:5,maxHp:5,reqRep:500,block:'midtown_a',desc:'Controls investigations. Expensive to buy.'},
+  viktor_enforcer:{id:'viktor_enforcer',name:'Viktor Kostarov',role:'rival',sub:'enforcer',loyalty:0,nerve:80,suspicion:75,hp:7,maxHp:7,block:'oldquarter_a',district:'old_quarter',worksFor:'kostarov',desc:'Enforcer for the Kostarov Crew. Cold and dangerous.'},
+};
+
+const FIRST=['Mike','Tony','Lisa','Angela','Derek','Nina','Carlos','Jade','Ray','Keisha','Omar','Tanya','Hector','Priya','Yuri','Brenda'];
+const LAST=['Johnson','Rivera','Kim','Patel','Brown','Garcia','Nguyen','Smith','Williams','Davis','Martinez','Lee'];
+
+function makeCiv(blk){
+  return new NPC({name:RNG.pick(FIRST)+' '+RNG.pick(LAST),role:'civilian',nerve:15+RNG.int(0,30),suspicion:30+RNG.int(0,30),block:blk,desc:'A local going about their day.'});
+}
+
+// ─── BLOCKS & DISTRICTS ──────────────────────────────────
+const BLK={};const DIST={};
+function mkBlock(id,name,did,pop,cops,ctrl={}){BLK[id]={id,name,did,pop,cops,ctrl:{player:0,kostarov:0,dragos:0,vega:0,...ctrl,neutral:100},crew:[],income:0};
+  const b=BLK[id];const claimed=b.ctrl.player+b.ctrl.kostarov+b.ctrl.dragos+b.ctrl.vega;b.ctrl.neutral=Math.max(0,100-claimed)}
+function mkDist(id,name,desc,blocks){DIST[id]={id,name,desc,blocks}}
+
+mkDist('the_row','The Row','Slums. Street-level crime. Where you start.',['row_a','row_b','row_c','row_d']);
+mkDist('the_docks','The Docks','Industrial smuggling hub. Warehouses and shipping.',['docks_a','docks_b','docks_c','docks_d']);
+mkDist('midtown','Midtown','Commercial district. Corporate fronts, white-collar crime.',['mid_a','mid_b','mid_c','mid_d']);
+mkDist('old_quarter','Old Quarter','Historic. Black markets and hidden tunnels.',['oq_a','oq_b','oq_c','oq_d']);
+mkDist('uptown','Uptown','Wealthy residential. High-risk, high-reward.',['up_a','up_b','up_c','up_d']);
+mkDist('the_strip','The Strip','Nightlife and entertainment. Gambling dens.',['strip_a','strip_b','strip_c','strip_d']);
+
+mkBlock('row_a','The Row - Block A','the_row',40,10);
+mkBlock('row_b','The Row - Block B','the_row',55,20);
+mkBlock('row_c','The Row - Block C','the_row',45,15);
+mkBlock('row_d','The Row - Block D','the_row',35,10);
+mkBlock('docks_a','The Docks - Block A','the_docks',20,5);
+mkBlock('docks_b','The Docks - Block B','the_docks',25,10);
+mkBlock('docks_c','The Docks - Block C','the_docks',15,5);
+mkBlock('docks_d','The Docks - Block D','the_docks',30,15);
+mkBlock('mid_a','Midtown - Block A','midtown',70,40,{dragos:40});
+mkBlock('mid_b','Midtown - Block B','midtown',65,35,{dragos:35});
+mkBlock('mid_c','Midtown - Block C','midtown',60,30);
+mkBlock('mid_d','Midtown - Block D','midtown',75,45,{dragos:50});
+mkBlock('oq_a','Old Quarter - Block A','old_quarter',35,10,{kostarov:60});
+mkBlock('oq_b','Old Quarter - Block B','old_quarter',40,15,{kostarov:50});
+mkBlock('oq_c','Old Quarter - Block C','old_quarter',30,10,{kostarov:45});
+mkBlock('oq_d','Old Quarter - Block D','old_quarter',45,20,{kostarov:55});
+mkBlock('up_a','Uptown - Block A','uptown',50,50);
+mkBlock('up_b','Uptown - Block B','uptown',55,45);
+mkBlock('up_c','Uptown - Block C','uptown',45,40);
+mkBlock('up_d','Uptown - Block D','uptown',60,55);
+mkBlock('strip_a','The Strip - Block A','the_strip',60,25,{vega:45});
+mkBlock('strip_b','The Strip - Block B','the_strip',70,30,{vega:55});
+mkBlock('strip_c','The Strip - Block C','the_strip',55,20,{vega:40});
+mkBlock('strip_d','The Strip - Block D','the_strip',65,35,{vega:50});
+
+// ─── GAME STATE ───────────────────────────────────────────
+const G={
+  p:null, npcs:{}, log:[], tab:'explore', paused:false,
+  time:{day:1,hr:22,min:0,wd:0,speed:1,last:0,DAYS:['Mon','Tue','Wed','Thu','Fri','Sat','Sun']},
+  rivals:{
+    kostarov:{id:'kostarov',name:'Kostarov Crew',str:60,hostility:20,phase:'passive',timer:30},
+    dragos:{id:'dragos',name:'Dragos Syndicate',str:70,hostility:15,phase:'passive',timer:40},
+    vega:{id:'vega',name:'Vega Cartel',str:55,hostility:10,phase:'passive',timer:35}
+  },
+  jobs:[],activeJob:null,doneJobs:[],
+
+  init(){
+    this.p=new Player();
+    for(const[k,t]of Object.entries(NPCS))this.npcs[t.id]=new NPC(t);
+    ['row_a','row_b','row_c','row_d','docks_a','oq_a','strip_a'].forEach(b=>{for(let i=0;i<3;i++){const c=makeCiv(b);this.npcs[c.id]=c}});
+    this.genJobs();
+    this.log=[];
+    addLog('You step onto the rain-slicked streets of The Row. No crew. No cash. No rep. Time to change that.','st');
+  },
+
+  npcsHere(){return Object.values(this.npcs).filter(n=>n.block===this.p.block&&n.alive)},
+
+  moveTo(blk){
+    if(!BLK[blk])return;
+    this.p.block=blk;this.p.district=BLK[blk].did;
+    addLog(`Moved to ${BLK[blk].name}.`,'i');
+    render();
+    // Random encounter chance when moving
+    if(RNG.chance(12+this.p.heat*0.2))randomEvent();
+  },
+
+  save(){
+    try{
+      const d={p:this.p,npcs:this.npcs,time:this.time,rivals:this.rivals,jobs:this.jobs,activeJob:this.activeJob,log:this.log.slice(-30)};
+      for(const[id,b]of Object.entries(BLK))d['b_'+id]=b.ctrl;
+      localStorage.setItem('ce_save',JSON.stringify(d));
+      addLog('Game saved.','s');
+    }catch(e){addLog('Save failed: '+e.message,'d')}
+  },
+
+  load(){
+    try{
+      const raw=localStorage.getItem('ce_save');
+      if(!raw)return addLog('No save found.','w');
+      const d=JSON.parse(raw);
+      // Reconstruct player
+      this.p=Object.assign(new Player(),d.p);
+      // Reconstruct NPCs
+      this.npcs={};
+      for(const[id,n]of Object.entries(d.npcs))this.npcs[id]=Object.assign(new NPC({}),n);
+      // Restore time, rivals, jobs
+      Object.assign(this.time,d.time);
+      if(d.rivals)Object.assign(this.rivals,d.rivals);
+      if(d.jobs)this.jobs=d.jobs;
+      if(d.activeJob)this.activeJob=d.activeJob;
+      if(d.log)this.log=d.log;
+      // Restore block control
+      for(const[id,b]of Object.entries(BLK)){if(d['b_'+id])b.ctrl=d['b_'+id]}
+      addLog('Game loaded!','s');
+      render();
+    }catch(e){addLog('Load failed: '+e.message,'d')}
+  }
+};
+
+// ─── REPUTATION TIERS ─────────────────────────────────────
+const TIERS=[
+  {t:1,title:'Street Rat',min:0,slots:1},
+  {t:2,title:'Hustler',min:100,slots:2},
+  {t:3,title:'Enforcer',min:500,slots:3},
+  {t:4,title:'Lieutenant',min:1500,slots:5},
+  {t:5,title:'Underboss',min:5000,slots:8},
+  {t:6,title:'Crime Lord',min:15000,slots:12},
+  {t:7,title:'Kingpin',min:50000,slots:20}
+];
+function getTier(r){let t=TIERS[0];for(const x of TIERS)if(r>=x.min)t=x;return t}
+const HTIERS=[{n:'Cold',min:0,c:'#4a9eff'},{n:'Warm',min:20,c:'#ffa500'},{n:'Hot',min:40,c:'#ff6347'},{n:'Blazing',min:60,c:'#ff1a1a'},{n:'Inferno',min:80,c:'#8b0000'}];
+function getHTier(h){let t=HTIERS[0];for(const x of HTIERS)if(h>=x.min)t=x;return t}
+
+// ─── LOGGING ──────────────────────────────────────────────
+function addLog(text,type='i'){
+  const t=G.time;const h=t.hr%12||12;const ap=t.hr<12?'AM':'PM';
+  const ts=h+':'+String(t.min).padStart(2,'0')+' '+ap;
+  G.log.push({text,type,ts});
+  if(G.log.length>100)G.log.shift();
+  renderLog();
+}
+
+// ─── HEAT SYSTEM ──────────────────────────────────────────
+function addHeat(n,src){
+  const old=getHTier(G.p.heat);
+  G.p.heat=Math.max(0,Math.min(100,G.p.heat+n));
+  const nw=getHTier(G.p.heat);
+  if(nw.n!==old.n){
+    if(nw.n==='Warm')addLog('Cops are starting to notice you. Patrols increasing.','w');
+    if(nw.n==='Hot')addLog('Detectives are investigating. Watch your back.','d');
+    if(nw.n==='Blazing'){addLog('Raids imminent! Undercover cops everywhere.','d');G.p.crew.forEach(c=>{if(c.loyalty<50)c.loyalty-=5})}
+    if(nw.n==='Inferno'){addLog('FED TASK FORCE DEPLOYED! Wanted on sight!','d');G.p.crew.forEach(c=>{if(c.loyalty<50)c.loyalty-=15})}
+    if(old.n!=='Cold'&&nw.n==='Cold')addLog('Heat cooled down. Operate freely.','s');
+  }
+  updateHUD();
+}
+E.on('heat_add',d=>addHeat(d.n,d.src));
+
+// ─── REP SYSTEM ───────────────────────────────────────────
+function addRep(n,src){
+  const old=getTier(G.p.rep);
+  G.p.rep=Math.max(0,G.p.rep+n);
+  const nw=getTier(G.p.rep);
+  G.p.tier=nw.t;
+  if(nw.t>old.t){
+    G.p.crewSlots=nw.slots;
+    if(nw.t%2===0){G.p.skillPts++;addLog(`Skill point earned! (${G.p.skillPts} unspent)`,'r')}
+    addLog(`TIER UP! You are now a ${nw.title} (Tier ${nw.t}). Crew slots: ${nw.slots}.`,'r');
+    Object.values(G.rivals).forEach(r=>r.hostility=Math.min(100,r.hostility+10));
+  }
+  if(nw.t<old.t){
+    G.p.crewSlots=nw.slots;
+    while(G.p.crew.length>G.p.crewSlots){const rm=G.p.crew.pop();rm.worksFor='none';addLog(`${rm.name} left — can't support them.`,'d')}
+    addLog(`Rep dropped. Now a ${nw.title} (Tier ${nw.t}).`,'d');
+  }
+  updateHUD();
+}
+
+// ─── INTERACTION SYSTEM ───────────────────────────────────
+function getActions(npc){
+  const p=G.p,a=[];
+  if(!npc.alive)return[{id:'loot',label:'Search Body',on:true}];
+  a.push({id:'talk',label:'Talk',on:true});
+  const canThreat=npc.role==='civilian'||(npc.role==='contact'&&p.tier>=2)||npc.role==='rival';
+  a.push({id:'threaten',label:'Threaten',on:canThreat,lock:canThreat?'':'Need Hustler (Rep 100)'});
+  const bc=bribeCost(npc);
+  a.push({id:'bribe',label:`Bribe ($${bc})`,on:p.canAfford(bc)&&npc.role!=='rival',lock:npc.role==='rival'?'Can\'t bribe rivals':(p.canAfford(bc)?'':`Need $${bc}`)});
+  if(p.rackets.some(r=>r.npcId===npc.id&&r.missed>0))a.push({id:'collect',label:'Collect Payment',on:true});
+  if(npc.sub==='supplier')a.push({id:'deal',label:'Make a Deal',on:true});
+  if(npc.spec&&(npc.role==='civilian'||npc.role==='contact')){
+    const canRec=p.crew.length<p.crewSlots&&(npc.loyalty>=20||npc.fear>=50)&&p.rep>=(npc.reqRep||0);
+    a.push({id:'recruit',label:`Recruit ($${npc.salary}/wk)`,on:canRec,lock:canRec?'':recLock(npc)});
+  }
+  if(npc.role==='civilian'&&!npc.spec&&!p.rackets.some(r=>r.npcId===npc.id)&&p.tier>=2)
+    a.push({id:'shakedown',label:'Shakedown',on:true});
+  return a;
+}
+function bribeCost(n){return n.role==='cop'?(n.sub==='detective'?1000:200):n.role==='contact'?100:50}
+function recLock(n){const p=G.p;if(p.crew.length>=p.crewSlots)return`Crew full (${p.crew.length}/${p.crewSlots})`;if(p.rep<(n.reqRep||0))return`Need Rep ${n.reqRep}`;return'Need loyalty 20+ or fear 50+'}
+
+function doAction(id,npcId){
+  const n=G.npcs[npcId];if(!n)return;
+  n.lastTalk=G.time.day;
+  let r;
+  switch(id){
+    case'talk':r=actTalk(n);break;
+    case'threaten':r=actThreaten(n);break;
+    case'bribe':r=actBribe(n);break;
+    case'collect':r=actCollect(n);break;
+    case'deal':r=actDeal(n);break;
+    case'recruit':r=actRecruit(n);break;
+    case'shakedown':r=actShakedown(n);break;
+    default:return;
+  }
+  showResult(npcId,r);
+  updateHUD();
+}
+
+// ── TALK ──────────────────────────────────────────────────
+function actTalk(n){
+  if(n.fear>60){n.loyalty=Math.min(100,n.loyalty+1);return{ok:true,text:`${n.name} is too scared to talk freely. They mutter something useless.`,chg:{loyalty:'+1'}}}
+  if(n.loyalty<10&&n.role==='civilian'){return{ok:false,text:`${n.name} ignores you and walks away.`}}
+  const lg=n.role==='contact'?5:3;
+  n.loyalty=Math.min(100,n.loyalty+lg);
+  const lines={
+    civilian:['I keep to myself. But I see things.','This neighborhood ain\'t safe no more.','Heard cops asking questions on Block B.','Some new crew\'s been tagging walls on Block C.'],
+    contact:{fence:['Got buyers lined up. Bring me quality stuff.','Electronics are hot right now — good margins.','Kostarov\'s been sniffing around. Watch out.'],
+      supplier:['Product\'s fresh this week. Premium.','Move volume and I\'ll cut you a better deal.','Cops set up a sting on 4th last week. Stay sharp.'],
+      forger:['Need clean papers? I\'m your girl.','For the right price, your record disappears.']},
+    cop:['You think I don\'t see what you\'re doing?','Keep clean and we won\'t have problems.','Maybe we can help each other... for a price.'],
+    rival:['You\'re in the wrong neighborhood.','My boss knows about you.','Keep pushing and see what happens.']
+  };
+  let line;
+  if(n.role==='contact'&&lines.contact[n.sub])line=RNG.pick(lines.contact[n.sub]);
+  else if(lines[n.role])line=RNG.pick(Array.isArray(lines[n.role])?lines[n.role]:['...']);
+  else line='...';
+  let intel='';
+  if(n.trust>40&&n.role==='contact')intel='\n💡 Intel: '+RNG.pick(['Cops planning a sweep this week.','Rival activity on Block C.','Empty storefront on Block B — good for a front.','Shipment coming to the docks soon.']);
+  return{ok:true,text:`${n.name}: "${line}"${intel}`,chg:{loyalty:'+'+lg}};
+}
+
+// ── THREATEN ──────────────────────────────────────────────
+function actThreaten(n){
+  const p=G.p,ck=RNG.skill(p.skills.intimidation,n.nerve);
+  const wc=makeWitnesses(p.block,'threaten_'+n.id);
+  if(ck.ok){
+    n.fear=Math.min(100,n.fear+20);n.loyalty=Math.max(0,n.loyalty-10);
+    if(n.witness){n.witness=false;n.witCrime=null}
+    const h=3+wc*2;addHeat(h,'threaten');addRep(5,'threaten');
+    return{ok:true,text:`${n.name} backs down, hands shaking. "Okay... I get it." (${ck.chance}% chance, rolled ${ck.roll})`,chg:{fear:'+20',loyalty:'-10',heat:'+'+h,rep:'+5'},wc};
+  }else{
+    n.fear=Math.max(0,n.fear-5);n.nerve=Math.min(100,n.nerve+10);
+    addHeat(8+wc*2,'threaten_fail');addRep(-3,'threaten_fail');
+    const fight=n.nerve>60&&n.hp>2;
+    return{ok:false,text:fight?`${n.name} doesn't flinch. "You don't scare me." They're ready to fight! (${ck.chance}%, rolled ${ck.roll})`:`${n.name} isn't impressed. Word will spread. (${ck.chance}%, rolled ${ck.roll})`,chg:{fear:'-5',nerve:'+10',heat:'+'+(8+wc*2),rep:'-3'},fight};
+  }
+}
+
+// ── BRIBE ─────────────────────────────────────────────────
+function actBribe(n){
+  const p=G.p,cost=bribeCost(n);
+  if(!p.canAfford(cost))return{ok:false,text:`Can't afford the $${cost} bribe.`};
+  if(n.sub==='fed'){addHeat(15,'bribe_fed');return{ok:false,text:`${n.name} is a FED. They record your bribe attempt. Heat surges!`,chg:{heat:'+15'}}}
+  p.spend(cost);n.loyalty=Math.min(100,n.loyalty+10);
+  if(n.role==='cop'){
+    const hr=n.sub==='detective'?15:8;addHeat(-hr,'bribe_cop');
+    if(!p.contacts.includes(n.id)){p.contacts.push(n.id);n.sub='corrupt_'+n.sub}
+    return{ok:true,text:`${n.name} pockets the cash. "We never had this conversation." (-${hr} heat)`,chg:{cash:'-'+cost,loyalty:'+10',heat:'-'+hr}};
+  }
+  if(n.witness){n.witness=false;n.witCrime=null;return{ok:true,text:`${n.name} takes the money. "I didn't see anything." Witness silenced.`,chg:{cash:'-'+cost,loyalty:'+10'}}}
+  return{ok:true,text:`${n.name} appreciates the gesture. Loyalty increased.`,chg:{cash:'-'+cost,loyalty:'+10'}};
+}
+
+// ── COLLECT ───────────────────────────────────────────────
+function actCollect(n){
+  const p=G.p,rac=p.rackets.find(r=>r.npcId===n.id&&r.missed>0);
+  if(!rac)return{ok:false,text:`${n.name} doesn't owe you anything.`};
+  const owed=rac.pay*rac.missed,ck=RNG.skill(p.skills.intimidation,n.nerve);
+  if(ck.ok){
+    p.addDirty(owed);n.fear=Math.min(100,n.fear+15);rac.missed=0;
+    const wc=makeWitnesses(p.block,'collect_'+n.id),h=5+wc*2;
+    addHeat(h,'collect');addRep(8,'collect');
+    const b=BLK[p.block];if(b){b.ctrl.player=Math.min(100,b.ctrl.player+2);recalc(b)}
+    return{ok:true,text:`${n.name} pays everything: $${owed}. "It won't happen again." (${ck.chance}%, rolled ${ck.roll})`,chg:{cash:'+'+owed,fear:'+15',heat:'+'+h,rep:'+8'}};
+  }else if(ck.roll-ck.chance<15){
+    const half=Math.floor(owed*.5);p.addDirty(half);n.fear=Math.min(100,n.fear+5);rac.missed=Math.max(0,rac.missed-1);
+    addHeat(3,'collect_partial');addRep(3,'collect');
+    return{ok:true,partial:true,text:`${n.name} scrapes together half: $${half}. "I'll get the rest next week." (${ck.chance}%, rolled ${ck.roll})`,chg:{cash:'+'+half,fear:'+5',heat:'+3',rep:'+3'}};
+  }else{
+    n.fear=Math.max(0,n.fear-5);n.nerve=Math.min(100,n.nerve+5);addHeat(5,'collect_fail');addRep(-5,'collect_fail');
+    const fight=n.nerve>55;
+    return{ok:false,text:fight?`${n.name} refuses and reaches behind the counter! (${ck.chance}%, rolled ${ck.roll})`:`${n.name}: "I don't have it." You leave empty-handed. (${ck.chance}%, rolled ${ck.roll})`,chg:{fear:'-5',heat:'+5',rep:'-5'},fight};
+  }
+}
+
+// ── DEAL ──────────────────────────────────────────────────
+function actDeal(n){
+  const p=G.p;
+  if(n.sub!=='supplier')return{ok:false,text:`${n.name} isn't a supplier.`};
+  const val=200+p.tier*150+RNG.int(0,200),cost=Math.floor(val*.4),cut=Math.floor(val*.6);
+  if(!p.canAfford(cost))return{ok:false,text:`Rico: "Minimum buy-in is $${cost}. Come back with cash."`};
+
+  // Sting check
+  const stingPct=Math.max(2,Math.min(50,5+p.heat*.5-p.skills.streetSmarts*3));
+  if(RNG.chance(stingPct)){
+    const detect=RNG.skill(p.skills.streetSmarts,60);
+    if(detect.ok)return{ok:true,text:`Something feels off... you spot an unmarked car. You walk away clean! (Street Smarts saved you — sting was ${Math.round(stingPct)}%)`,chg:{}};
+    // Busted
+    const lost=Math.floor(p.cash.dirty*.5);p.cash.dirty-=lost;
+    const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
+    addHeat(20,'sting');addRep(-20,'arrested');
+    p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
+    const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
+    return{ok:false,text:`IT'S A STING! Cops swarm in. Arrested!\nCash seized: $${lost}. Bail: $${bail}. Lost ${days} days. (Sting chance was ${Math.round(stingPct)}%)`,chg:{cash:'-'+(lost+bail),heat:'+20',rep:'-20'}};
+  }
+
+  // Clean deal
+  const neg=RNG.skill(p.skills.persuasion,n.suspicion);
+  let finalCut=cut,extra='';
+  if(neg.ok){finalCut=Math.floor(val*.7);extra=' (Negotiated better cut!)';n.trust=Math.min(100,n.trust+3)}
+  p.spend(cost);p.addDirty(finalCut);
+  const net=finalCut-cost;
+  addHeat(5,'deal');addRep(8,'deal');n.trust=Math.min(100,n.trust+3);
+  return{ok:true,text:`Deal done.${extra} Invested $${cost}, earned $${finalCut}. Profit: $${net}.`,chg:{cash:'+'+net,heat:'+5',rep:'+8',trust:'+3'}};
+}
+
+// ── RECRUIT ───────────────────────────────────────────────
+function actRecruit(n){
+  const p=G.p;
+  if(p.crew.length>=p.crewSlots)return{ok:false,text:`Crew full (${p.crew.length}/${p.crewSlots}).`};
+  if(p.rep<(n.reqRep||0))return{ok:false,text:`${n.name} won't work for a ${getTier(p.rep).title}. Need Rep ${n.reqRep}.`};
+  if(n.loyalty<20&&n.fear<50)return{ok:false,text:`${n.name} doesn't trust or fear you enough. Build rapport first.`};
+  n.role='crew';n.worksFor='player';n.loyalty=n.fear>=50?25:Math.max(30,n.loyalty);n.betrayDays=0;
+  p.crew.push(n);addRep(5,'recruit');
+  return{ok:true,text:`${n.name} joins your crew as ${n.spec}! Salary: $${n.salary}/week. Loyalty: ${n.loyalty}.`,chg:{crew:`${p.crew.length}/${p.crewSlots}`,rep:'+5',weekly:'-'+n.salary}};
+}
+
+// ── SHAKEDOWN ─────────────────────────────────────────────
+function actShakedown(n){
+  const p=G.p,demand=200+p.tier*100;
+  const persCheck=RNG.skill(p.skills.persuasion,n.suspicion);
+  const intCheck=RNG.skill(p.skills.intimidation,n.nerve);
+
+  if(persCheck.ok){
+    const pay=Math.floor(demand*.75);n.loyalty=Math.min(100,n.loyalty+10);n.fear=Math.min(100,n.fear+10);
+    p.rackets.push({npcId:n.id,pay,active:true,missed:0,block:p.block});
+    addRep(10,'racket');
+    const b=BLK[p.block];if(b){b.ctrl.player=Math.min(100,b.ctrl.player+5);recalc(b)}
+    return{ok:true,text:`${n.name} agrees to $${pay}/week for "protection." No heat. (Persuasion: ${persCheck.chance}%, rolled ${persCheck.roll})`,chg:{racket:'+$'+pay+'/wk',loyalty:'+10',rep:'+10',territory:'+5%'}};
+  }
+  if(intCheck.ok){
+    n.fear=Math.min(100,n.fear+30);n.loyalty=Math.max(0,n.loyalty-10);
+    p.rackets.push({npcId:n.id,pay:demand,active:true,missed:0,block:p.block});
+    const wc=makeWitnesses(p.block,'shakedown_'+n.id),h=8+wc*2;
+    addHeat(h,'shakedown');addRep(10,'racket');
+    const b=BLK[p.block];if(b){b.ctrl.player=Math.min(100,b.ctrl.player+5);recalc(b)}
+    return{ok:true,text:`${n.name} is shaken. Agrees to $${demand}/week. ${wc} witnesses. (Intimidation: ${intCheck.chance}%, rolled ${intCheck.roll})`,chg:{racket:'+$'+demand+'/wk',fear:'+30',heat:'+'+h,rep:'+10'}};
+  }
+  n.nerve=Math.min(100,n.nerve+10);addRep(-3,'shakedown_fail');
+  let extra='';
+  if(RNG.chance(30)){addHeat(8,'shakedown_report');extra='\nThey called the cops after you left.';}
+  return{ok:false,text:`${n.name}: "Get out of my store." Not buying it. (Pers: ${persCheck.chance}%, Intim: ${intCheck.chance}%)${extra}`,chg:{nerve:'+10',rep:'-3'}};
+}
+
+// ── Witness helper ────────────────────────────────────────
+function makeWitnesses(blk,crime){
+  const civs=Object.values(G.npcs).filter(n=>n.block===blk&&n.role==='civilian'&&n.alive&&!n.witness);
+  const count=Math.min(civs.length,Math.max(1,Math.floor(BLK[blk].pop/25)));
+  for(let i=0;i<count;i++){civs[i].witness=true;civs[i].witCrime=crime}
+  return count;
+}
+function recalc(b){const cl=b.ctrl.player+b.ctrl.kostarov+b.ctrl.dragos+b.ctrl.vega;b.ctrl.neutral=Math.max(0,100-cl)}
+
+// ─── RANDOM EVENTS ────────────────────────────────────────
+function randomEvent(){
+  const p=G.p;
+  const events=[
+    {w:20,fn(){addLog('A shady figure offers you a tip: "Big shipment at the docks tonight."','w')}},
+    {w:15,fn(){const found=RNG.int(20,80);p.addDirty(found);addLog(`Found $${found} cash in an alley dumpster.`,'s')}},
+    {w:10+p.heat*.5,fn(){addHeat(RNG.int(3,8),'patrol_spotted');addLog('A cop car slows down as it passes you. They\'re watching.','w')}},
+    {w:p.heat>20?15:0,fn(){
+      if(!p.canAfford(50))return addLog('A junkie tries to mug you but you have nothing to steal.','w');
+      const lost=Math.min(RNG.int(30,100),p.cash.dirty);p.cash.dirty-=lost;E.emit('money');
+      addLog(`Pickpocket! Someone grabbed $${lost} from your pocket and vanished.`,'d');
+    }},
+    {w:p.crew.length>0?10:0,fn(){
+      const c=RNG.pick(p.crew);c.loyalty=Math.min(100,c.loyalty+5);
+      addLog(`${c.name} brings you coffee and intel. Loyalty +5.`,'s');
+    }},
+    {w:8,fn(){
+      const civ=makeCiv(p.block);G.npcs[civ.id]=civ;
+      addLog(`A new face appeared in the neighborhood: ${civ.name}.`,'i');
+    }},
+    {w:p.rep>200?12:0,fn(){
+      const r=RNG.pick(Object.values(G.rivals));
+      addLog(`Word on the street: the ${r.name} is talking about you. ${r.hostility>40?'Not in a good way.':'Curious, not hostile... yet.'}`, r.hostility>40?'w':'i');
+    }},
+    {w:p.heat>40?15:0,fn(){
+      addLog('You spot an unmarked car parked outside. Feds? Rivals? Either way, stay sharp.','d');
+    }},
+  ];
+  const pool=events.filter(e=>e.w>0);
+  const total=pool.reduce((s,e)=>s+e.w,0);
+  let roll=Math.random()*total;
+  for(const ev of pool){roll-=ev.w;if(roll<=0){ev.fn();return}}
+}
+
+// ─── TIME / TICKS ─────────────────────────────────────────
+function updateTime(ts){
+  if(G.paused)return;
+  if(!G.time.last){G.time.last=ts;return}
+  const rate=1000/G.time.speed;
+  if(ts-G.time.last>=rate){
+    G.time.last=ts;
+    G.time.min++;
+    if(G.time.min>=60){G.time.min=0;G.time.hr++;
+      if(G.time.hr>=24){G.time.hr=0;G.time.day++;G.time.wd=(G.time.wd+1)%7;dayTick();
+        if(G.time.day%7===0)weekTick();
+      }
+    }
+    updateHUD();
+  }
+}
+
+function dayTick(){
+  // Heat decay
+  const decay=G.p.heat>=80?1:G.p.heat>=40?2:3;
+  if(G.p.heat>0)addHeat(-decay,'decay');
+  // NPC fear/loyalty decay
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive)continue;
+    if(n.fear>0)n.fear=Math.max(0,n.fear-2);
+    if(n.worksFor!=='player'){if(n.loyalty>30)n.loyalty--;else if(n.loyalty<30&&n.role==='contact')n.loyalty++}
+    if(n.trust>50&&G.time.day-n.lastTalk>7)n.trust=Math.max(0,n.trust-3);
+  }
+  // Witness reports
+  for(const n of Object.values(G.npcs)){
+    if(!n.witness||!n.witCrime)continue;
+    const rc=Math.max(5,60-n.fear*.8);
+    if(RNG.chance(rc)){addHeat(8+RNG.int(0,7),'witness');addLog(`A witness reported your crime! (+heat)`,'d');n.witness=false;n.witCrime=null}
+    else n.fear=Math.max(0,n.fear-5);
+  }
+  // Betrayal check
+  for(const c of[...G.p.crew]){
+    if(c.loyalty<20){c.betrayDays++;
+      if(c.betrayDays>=14&&RNG.chance((20-c.loyalty)*3)){
+        addLog(`BETRAYAL! ${c.name} turned against you!`,'d');
+        G.p.crew=G.p.crew.filter(x=>x.id!==c.id);c.worksFor='kostarov';c.snitch=true;c.role='rival';
+        addHeat(25,'betrayal');addRep(-15,'betrayal');
+        G.p.crew.forEach(x=>x.loyalty=Math.max(0,x.loyalty-5));
+      }
+    }else c.betrayDays=0;
+  }
+  // Territory
+  for(const b of Object.values(BLK)){
+    const cc=b.crew.length;
+    if(cc>0){b.ctrl.player=Math.min(100,b.ctrl.player+cc*2);for(const rid of['kostarov','dragos','vega'])if(b.ctrl[rid]>0)b.ctrl[rid]=Math.max(0,b.ctrl[rid]-cc*2);recalc(b)}
+    else if(b.ctrl.player>0){b.ctrl.player=Math.max(0,b.ctrl.player-1);recalc(b)}
+  }
+  // Rival AI
+  for(const r of Object.values(G.rivals)){
+    if(r.phase==='passive'){if(r.hostility>30||G.p.rep>r.str*50){r.timer--;if(r.timer<=0){r.phase='probe';r.timer=14;addLog(`The ${r.name} is scouting your territory...`,'w')}}}
+    else if(r.phase==='probe'){r.timer--;if(r.timer<=0){r.phase='provoke';r.timer=7;addLog(`The ${r.name} is provoking — vandalism on your blocks!`,'d')}}
+    else if(r.phase==='provoke'){
+      const pblks=Object.values(BLK).filter(b=>b.ctrl.player>15);
+      if(pblks.length>0){const t=RNG.pick(pblks);t.ctrl.player=Math.max(0,t.ctrl.player-3);recalc(t)}
+      r.timer--;if(r.timer<=0){r.phase='attack';r.timer=3;addLog(`The ${r.name} is preparing an ATTACK!`,'d')}
+    }else if(r.phase==='attack'){
+      r.timer--;if(r.timer<=0){
+        const tgts=Object.values(BLK).filter(b=>b.ctrl.player>10).sort((a,b)=>a.crew.length-b.crew.length);
+        if(tgts.length>0){
+          const t=tgts[0],def=t.crew.length*10+t.ctrl.player*.5,atk=r.str*.3;
+          if(atk>def){t.ctrl.player=Math.max(0,t.ctrl.player-30);t.ctrl[r.id]=Math.min(100,(t.ctrl[r.id]||0)+30);recalc(t);addLog(`${r.name} seized ${t.name}! -30% control.`,'d');addRep(-10,'territory_lost')}
+          else{r.str-=5;addLog(`Your crew defended ${t.name}!`,'s');addRep(10,'defended')}
+        }
+        r.phase='passive';r.timer=21+RNG.int(0,14);
+      }
+    }
+  }
+}
+
+function weekTick(){
+  const p=G.p;let inc=0,exp=0;
+  // Racket income
+  for(const r of p.rackets){
+    if(!r.active)continue;
+    const n=G.npcs[r.npcId];
+    if(n&&(n.fear>=30||n.loyalty>=40)){p.addDirty(r.pay);inc+=r.pay;r.missed=0}
+    else{r.missed++;addLog(`${n?n.name:'Someone'} missed payment! (${r.missed}wk overdue)`,'w');
+      if(r.missed>=3){r.active=false;addLog(`Racket collapsed!`,'d');addHeat(10,'racket_collapse');
+        p.rackets.filter(x=>x.block===r.block&&x.active).forEach(x=>{const nn=G.npcs[x.npcId];if(nn)nn.fear=Math.max(0,nn.fear-10)})}}
+  }
+  // Front income + reset
+  for(const f of p.fronts){
+    if(!f.raided){p.addClean(f.legit);inc+=f.legit;f.washed=0}
+    else{f.cooldown--;if(f.cooldown<=0){f.raided=false;addLog(`${f.type} back in operation.`,'i')}}
+  }
+  // Territory income
+  for(const b of Object.values(BLK)){if(b.ctrl.player>=50){const ti=Math.floor(b.ctrl.player*2);p.addDirty(ti);inc+=ti}}
+  // Crew pay
+  for(const c of p.crew){
+    if(p.canAfford(c.salary)){p.spend(c.salary);exp+=c.salary;c.loyalty=Math.min(100,c.loyalty+3)}
+    else{c.loyalty-=10;addLog(`Can't pay ${c.name}! Loyalty dropped to ${c.loyalty}.`,'d')}
+  }
+  // Front raids
+  if(p.heat>50)for(const f of p.fronts){if(!f.raided&&RNG.chance((p.heat-50)*2)){f.raided=true;f.cooldown=5;addLog(`Your ${f.type} was RAIDED!`,'d');addHeat(5,'raid')}}
+  addLog(`Weekly: Income $${inc} | Expenses $${exp} | Net $${inc-exp}`,'i');
+}
+
+// ─── JOB SYSTEM ───────────────────────────────────────────
+G.genJobs=function(){
+  const p=this.p,t=p.tier;this.jobs=[];
+  const cnt=Math.min(5,2+Math.floor(t*.5)+Math.floor(p.contacts.length*.3));
+  for(let i=0;i<cnt;i++){
+    const type=RNG.wpick({theft:t<=2?30:10,delivery:25,collection:t>=2?25:5,deal:20,shakedown:t>=2?15:0,heist:t>=3?10:0});
+    this.jobs.push(mkJob(type,t));
+  }
+};
+let jid=0;
+function mkJob(type,tier){
+  jid++;
+  const T={
+    theft:{titles:['Car Trunk Job','Warehouse Break-in','Parking Lot Sweep'],desc:'Break in, grab goods, get out.',pay:100+tier*80,heat:5,risk:'low'},
+    delivery:{titles:['Corner Delivery','Package Drop','Night Run'],desc:'Pick up, deliver, no questions.',pay:150+tier*100,heat:3,risk:'low'},
+    collection:{titles:['Debt Collection','Overdue Payment','Friendly Reminder'],desc:'Someone owes. Go collect.',pay:120+tier*90,heat:5,risk:'medium'},
+    deal:{titles:['Corner Sale','Park Meet','Late Night Exchange'],desc:'Meet buyer, make exchange.',pay:200+tier*120,heat:5,risk:'medium'},
+    shakedown:{titles:['Protection Setup','New Client','Territory Expansion'],desc:'Convince a business they need you.',pay:250+tier*100,heat:8,risk:'medium'},
+    heist:{titles:['Warehouse Heist','Jewelry Hit','Big Score'],desc:'Plan it, execute it, get rich or caught.',pay:2000+tier*1500,heat:15,risk:'high'}
+  };
+  const t=T[type]||T.theft;
+  return{id:'j'+jid,type,title:RNG.pick(t.titles),desc:t.desc,pay:t.pay+RNG.int(0,Math.floor(t.pay*.3)),heat:t.heat,risk:t.risk,sting:type==='deal'?5+G.p.heat*.5:0};
+}
+function acceptJob(id){
+  const j=G.jobs.find(x=>x.id===id);if(!j||G.activeJob)return;
+  G.activeJob=j;G.jobs=G.jobs.filter(x=>x.id!==id);
+  addLog(`Accepted: ${j.title} — $${j.pay}`,'i');render();
+}
+function completeJob(){
+  if(!G.activeJob)return;const j=G.activeJob;
+  G.p.addDirty(j.pay);addHeat(j.heat,'job');addRep(5+Math.floor(j.pay/100),'job');
+  addLog(`Job complete: ${j.title} — +$${j.pay}`,'s');
+  G.doneJobs.push(j);G.activeJob=null;render();
+}
+function abandonJob(){
+  if(!G.activeJob)return;addRep(-5,'abandon');addLog(`Abandoned: ${G.activeJob.title}`,'w');G.activeJob=null;render();
+}
+
+// ─── FRONT BUSINESSES ─────────────────────────────────────
+const FRONTS={laundromat:{cost:5000,cut:.15,cap:3000,legit:100},restaurant:{cost:15000,cut:.12,cap:8000,legit:250},car_wash:{cost:10000,cut:.13,cap:6000,legit:150},nightclub:{cost:30000,cut:.10,cap:15000,legit:500}};
+function buyFront(type){
+  const f=FRONTS[type];if(!f)return;if(!G.p.canAfford(f.cost))return addLog(`Can't afford $${f.cost} for ${type}.`,'w');
+  G.p.spend(f.cost);G.p.fronts.push({type,cost:f.cost,cut:f.cut,cap:f.cap,legit:f.legit,washed:0,raided:false,cooldown:0});
+  addLog(`Purchased ${type} for $${f.cost}.`,'s');render();
+}
+function launderMoney(idx){
+  const f=G.p.fronts[idx];if(!f||f.raided)return;
+  const amt=Math.min(G.p.cash.dirty,f.cap-f.washed);if(amt<=0)return addLog('Nothing to launder or front at capacity.','w');
+  const c=Math.floor(amt*f.cut),clean=amt-c;
+  G.p.cash.dirty-=amt;G.p.cash.clean+=clean;f.washed+=amt;
+  addLog(`Laundered $${amt} through ${f.type}. Cut: $${c}. Clean: $${clean}.`,'s');updateHUD();render();
+}
+
+// ─── UI RENDERING ─────────────────────────────────────────
+let curTab='explore';
+function switchTab(tab,btn){curTab=tab;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));btn.classList.add('on');render()}
+function setSpeed(s){G.time.speed=s;G.time.last=0;document.querySelectorAll('.sbtn').forEach(b=>b.classList.remove('on'));document.querySelectorAll('.sbtn').forEach(b=>{if(b.textContent===s+'x')b.classList.add('on')})}
+
+function updateHUD(){
+  const p=G.p,t=getTier(p.rep),h=getHTier(p.heat),tm=G.time;
+  const $=id=>document.getElementById(id);
+  $('h-cash').textContent='$'+p.total;$('h-cash').title=`Dirty: $${p.cash.dirty} | Clean: $${p.cash.clean} | Stashed: $${p.cash.stashed}`;
+  $('h-heat').textContent=p.heat;$('h-hbar').style.width=p.heat+'%';$('h-hbar').style.background=h.c;$('h-htier').textContent=h.n;
+  $('h-rep').textContent=p.rep;$('h-rtitle').textContent=t.title;
+  $('h-hp').textContent=p.hp+'/'+p.maxHp;$('h-crew').textContent=p.crew.length+'/'+p.crewSlots;
+  $('h-loc').textContent=BLK[p.block]?.name||p.block;
+  const hr=tm.hr%12||12,ap=tm.hr<12?'AM':'PM';
+  $('h-time').textContent=hr+':'+String(tm.min).padStart(2,'0')+' '+ap;
+  $('h-day').textContent=`Day ${tm.day} (${tm.DAYS[tm.wd]})`;
+  const per=tm.hr>=6&&tm.hr<12?'morning':tm.hr>=12&&tm.hr<18?'afternoon':tm.hr>=18?'night':'late_night';
+  const pel=$('h-period');pel.textContent=per.replace('_',' ');pel.className='period period-'+per;
+}
+
+function renderLog(){
+  const el=document.getElementById('log');if(!el)return;
+  const cls={i:'le-i',s:'le-s',w:'le-w',d:'le-d',r:'le-r',st:'le-st'};
+  el.innerHTML=G.log.slice(-30).map(e=>`<div class="le ${cls[e.type]||'le-i'}"><span class="lt">${e.ts}</span>${e.text}</div>`).join('');
+  el.scrollTop=el.scrollHeight;
+}
+
+function render(){
+  const c=document.getElementById('content');if(!c)return;
+  switch(curTab){
+    case'explore':renderExplore(c);break;
+    case'jobs':renderJobs(c);break;
+    case'crew':renderCrew(c);break;
+    case'map':renderMap(c);break;
+    case'skills':renderSkills(c);break;
+  }
+}
+
+// ── EXPLORE ───────────────────────────────────────────────
+function renderExplore(c){
+  const p=G.p,blk=BLK[p.block],dist=DIST[blk.did];
+  const adj=dist.blocks.filter(b=>b!==p.block);
+  const otherD=Object.values(DIST).filter(d=>d.id!==dist.id);
+  const npcs=G.npcsHere();
+
+  let h=`<div class="sec"><h3>📍 ${blk.name}</h3><p class="desc">${dist.desc}</p>
+    <div class="row"><span>Your Control: <b>${blk.ctrl.player}%</b></span><span>Population: ${blk.pop}</span><span>Cop Presence: ${blk.cops}%</span></div>
+    <div class="nav"><span class="nav-l">Go to:</span>
+    ${adj.map(b=>`<button class="nbtn" onclick="G.moveTo('${b}')">${BLK[b].name.split(' - ')[1]}</button>`).join('')}
+    ${otherD.map(d=>`<button class="nbtn nbtn-d" onclick="G.moveTo('${d.blocks[0]}')">${d.name}</button>`).join('')}
+    </div></div>`;
+
+  h+=`<div class="sec"><h3>👥 People Here (${npcs.length})</h3>`;
+  if(npcs.length===0)h+=`<p class="muted">Nobody around. Try a different block.</p>`;
+  else for(const n of npcs){
+    const ic={civilian:'👤',contact:'🤝',crew:'💪',rival:'⚔️',cop:'🚔'}[n.role]||'👤';
+    const wt=n.witness?'<span class="tag tag-r">WITNESS</span>':'';
+    const crewTag=n.role==='crew'?'<span class="tag tag-g">CREW</span>':'';
+    const specTag=n.spec&&n.role!=='crew'?`<span class="tag" style="background:rgba(74,158,255,.15);color:var(--accent)">Recruitable: ${n.spec}</span>`:'';
+    h+=`<div class="npc" onclick="showNPC('${n.id}')">
+      <div class="npc-h"><span class="npc-icon">${ic}</span><span class="npc-name">${n.name}</span>${wt}${crewTag}${specTag}</div>
+      <div class="npc-role">${n.role}${n.sub?' — '+n.sub:''}${n.spec&&n.role!=='crew'?' ('+n.spec+')':''}</div>
+      <div class="npc-stats"><span title="Loyalty">❤️ ${n.loyalty}</span><span title="Fear">😨 ${n.fear}</span><span title="Nerve">💪 ${n.nerve}</span></div>
+      <div class="npc-desc">${n.desc}</div></div>`;
+  }
+  h+=`</div><div id="apanel" class="sec"></div>`;
+  c.innerHTML=h;
+}
+
+function showNPC(id){
+  const n=G.npcs[id];if(!n)return;
+  G.paused=true;
+  const acts=getActions(n);
+  const panel=document.getElementById('apanel');if(!panel)return;
+  let h=`<h3>Interact: ${n.name}</h3>
+    <div class="act-stats"><span>Loyalty: ${n.loyalty}</span><span>Fear: ${n.fear}</span><span>Trust: ${n.trust}</span><span>Nerve: ${n.nerve}</span><span>HP: ${n.hp}/${n.maxHp}</span></div>
+    <div class="acts">`;
+  for(const a of acts){
+    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')">${a.label}</button>`;
+    else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
+  }
+  h+=`<button class="abtn abtn-x" onclick="closeNPC()">Walk Away</button></div><div id="ares"></div>`;
+  panel.innerHTML=h;panel.scrollIntoView({behavior:'smooth'});
+}
+
+function showResult(npcId,r){
+  const el=document.getElementById('ares');if(!el)return;
+  const cls=r.ok?'res-ok':'res-bad';
+  let chg='';
+  if(r.chg){chg='<div class="chg">';for(const[k,v]of Object.entries(r.chg)){
+    const n=typeof v==='string'&&v.startsWith('-');chg+=`<span class="${n?'chg-n':'chg-p'}">${k}: ${v}</span>`}chg+='</div>'}
+  el.innerHTML=`<div class="res ${cls}"><p>${r.text.replace(/\n/g,'<br>')}</p>${chg}</div>`;
+  // Refresh NPC actions
+  const n=G.npcs[npcId];if(n)setTimeout(()=>showNPC(npcId),150);
+  addLog(r.text.split('\n')[0],r.ok?'s':'w');
+}
+function closeNPC(){document.getElementById('apanel').innerHTML='';G.paused=false}
+
+// ── JOBS ──────────────────────────────────────────────────
+function renderJobs(c){
+  let h=`<div class="sec"><h3>📋 Jobs</h3>`;
+  if(G.activeJob){
+    const j=G.activeJob;
+    h+=`<div class="job job-a"><div class="job-hd"><span class="job-t">ACTIVE: ${j.title}</span><span class="job-p">$${j.pay}</span></div>
+      <p>${j.desc}</p><div class="job-m"><span class="risk risk-${j.risk}">${j.risk}</span><span>Type: ${j.type}</span><span>Heat: +${j.heat}</span></div>
+      <button class="abtn" onclick="completeJob()">Complete Job</button> <button class="abtn abtn-x" onclick="abandonJob()">Abandon</button></div>`;
+  }
+  if(G.jobs.length===0&&!G.activeJob)h+=`<p class="muted">No jobs available. Check back tomorrow.</p>`;
+  for(const j of G.jobs){
+    const sw=j.sting>15?`<span class="tag tag-r">⚠️ ${Math.round(j.sting)}% sting</span>`:'';
+    h+=`<div class="job"><div class="job-hd"><span class="job-t">${j.title}</span><span class="job-p">$${j.pay}</span></div>
+      <p>${j.desc}</p><div class="job-m"><span class="risk risk-${j.risk}">${j.risk}</span><span>${j.type}</span><span>Heat: +${j.heat}</span>${sw}</div>
+      ${!G.activeJob?`<button class="abtn" onclick="acceptJob('${j.id}')">Accept</button>`:'<span class="muted">Finish current job first</span>'}</div>`;
+  }
+  h+=`</div>`;c.innerHTML=h;
+}
+
+// ── CREW/EMPIRE ───────────────────────────────────────────
+function renderCrew(c){
+  const p=G.p;
+  let h=`<div class="sec"><h3>👥 Crew (${p.crew.length}/${p.crewSlots})</h3>`;
+  if(p.crew.length===0)h+=`<p class="muted">No crew. Find and recruit people from the streets.</p>`;
+  for(const cr of p.crew){
+    const lc=cr.loyalty>=60?'var(--accent)':cr.loyalty>=30?'var(--orange)':'var(--red)';
+    const bw=cr.loyalty<20?'<span class="tag tag-r">BETRAYAL RISK</span>':'';
+    h+=`<div class="ccard"><div class="ccard-h"><span class="ccard-n">${cr.name}</span><span class="ccard-r">${cr.spec||cr.sub}</span>${bw}</div>
+      <div class="ccard-s"><span style="color:${lc}">Loyalty: ${cr.loyalty}</span><span>$${cr.salary}/wk</span><span>HP: ${cr.hp}/${cr.maxHp}</span></div>
+      <button class="abtn abtn-s" onclick="stationCrew('${cr.id}')">Station Here</button></div>`;
+  }
+  h+=`<h3>💰 Rackets</h3>`;
+  if(p.rackets.length===0)h+=`<p class="muted">No rackets. Shakedown business owners (need Hustler tier).</p>`;
+  for(const r of p.rackets){
+    const n=G.npcs[r.npcId];const sc=r.active?(r.missed>0?'var(--orange)':'var(--accent)'):'var(--red)';
+    h+=`<div class="rac" style="border-left-color:${sc}"><span>${n?.name||'?'}</span><span>$${r.pay}/wk</span>
+      <span>${r.active?(r.missed>0?`⚠️ ${r.missed}wk overdue`:'✅ Active'):'❌ Collapsed'}</span></div>`;
+  }
+  h+=`<h3>🏢 Fronts</h3>`;
+  if(p.fronts.length===0)h+=`<p class="muted">No fronts. Buy one to launder money (need Lieutenant tier).</p>`;
+  for(let i=0;i<p.fronts.length;i++){const f=p.fronts[i];
+    h+=`<div class="frt"><span>${f.type}</span><span>Washed: $${f.washed}/$${f.cap}</span><span>Cut: ${Math.round(f.cut*100)}%</span>
+      <span>${f.raided?'🚨 RAIDED':'✅ Open'}</span>
+      ${!f.raided&&p.cash.dirty>0?`<button class="abtn abtn-s" onclick="launderMoney(${i})">Launder</button>`:''}</div>`}
+  if(p.tier>=4){h+=`<h4>Buy a Front:</h4><div class="acts">`;
+    for(const[k,v]of Object.entries(FRONTS))h+=`<button class="abtn" onclick="buyFront('${k}')">${k} ($${v.cost/1000}K)</button>`;
+    h+=`</div>`}
+  h+=`</div>`;c.innerHTML=h;
+}
+function stationCrew(id){
+  const cr=G.p.crew.find(c=>c.id===id);if(!cr)return;
+  for(const b of Object.values(BLK))b.crew=b.crew.filter(c=>c.id!==id);
+  BLK[G.p.block].crew.push(cr);addLog(`${cr.name} stationed at ${BLK[G.p.block].name}.`,'s');render();
+}
+
+// ── MAP ───────────────────────────────────────────────────
+function renderMap(c){
+  let h=`<div class="sec"><h3>🗺️ Territory</h3>`;
+  for(const[did,dist]of Object.entries(DIST)){
+    h+=`<div class="dcard"><h4>${dist.name}</h4><p class="desc">${dist.desc}</p><div class="bgrid">`;
+    for(const bid of dist.blocks){const b=BLK[bid];const here=G.p.block===bid;
+      const cc=b.ctrl.player>50?'#4a9eff':b.ctrl.kostarov>50?'#ff4444':b.ctrl.dragos>50?'#ff8800':b.ctrl.vega>50?'#cc44cc':'#666';
+      h+=`<div class="btile${here?' here':''}" onclick="G.moveTo('${bid}')" style="border-color:${cc}">
+        <div class="bname">${bid.split('_')[1].toUpperCase()}</div>
+        <div class="bbar"><div class="bfill" style="width:${b.ctrl.player}%;background:#4a9eff"></div></div>
+        <div class="binfo">${b.ctrl.player}% ${b.crew.length?'👥':''}</div>
+        ${here?'<div class="byou">YOU</div>':''}</div>`}
+    h+=`</div></div>`}
+  h+=`<h3>⚔️ Rivals</h3>`;
+  for(const r of Object.values(G.rivals)){
+    const pc={passive:'#666',probe:'#ffa500',provoke:'#ff6347',attack:'#ff0000'}[r.phase]||'#666';
+    h+=`<div class="rcard"><span class="rname">${r.name}</span><span>Hostility: ${r.hostility}</span><span style="color:${pc}">Phase: ${r.phase}</span><span>Str: ${r.str}</span></div>`}
+  h+=`</div>`;c.innerHTML=h;
+}
+
+// ── SKILLS ────────────────────────────────────────────────
+function renderSkills(c){
+  const p=G.p;
+  const sk=[{k:'intimidation',n:'Intimidation',d:'Affects threaten and collect.'},{k:'persuasion',n:'Persuasion',d:'Affects deals and shakedowns.'},
+    {k:'streetSmarts',n:'Street Smarts',d:'Detects stings, improves escapes.'},{k:'operations',n:'Operations',d:'Heist and job efficiency.'},
+    {k:'leadership',n:'Leadership',d:'Crew management and loyalty.'}];
+  let h=`<div class="sec"><h3>📊 Skills (${p.skillPts} pts)</h3>`;
+  for(const s of sk){const lv=p.skills[s.k];
+    h+=`<div class="skrow"><div class="skinfo"><span class="skn">${s.n}: ${lv}/8</span><span class="skd">${s.d}</span></div>
+      <div class="skbar"><div class="skfill" style="width:${lv/8*100}%"></div></div>
+      ${p.skillPts>0&&lv<8?`<button class="abtn abtn-s" onclick="upSkill('${s.k}')">+1</button>`:''}</div>`}
+  h+=`<h3>📈 Stats</h3><div class="stgrid">
+    <div class="stitem"><span>Dirty Cash</span><span>$${p.cash.dirty}</span></div>
+    <div class="stitem"><span>Clean Cash</span><span>$${p.cash.clean}</span></div>
+    <div class="stitem"><span>Stashed</span><span>$${p.cash.stashed}</span></div>
+    <div class="stitem"><span>Arrests</span><span>${p.arrests}</span></div>
+    <div class="stitem"><span>Jobs Done</span><span>${G.doneJobs.length}</span></div>
+    <div class="stitem"><span>Active Rackets</span><span>${p.rackets.filter(r=>r.active).length}</span></div>
+    <div class="stitem"><span>Territories (50%+)</span><span>${Object.values(BLK).filter(b=>b.ctrl.player>=50).length}/24</span></div>
+    <div class="stitem"><span>Total Crew</span><span>${p.crew.length}</span></div>
+  </div></div>`;c.innerHTML=h;
+}
+function upSkill(k){const p=G.p;if(p.skillPts<=0||p.skills[k]>=8)return;p.skillPts--;p.skills[k]++;addLog(`${k} upgraded to level ${p.skills[k]}.`,'r');render();updateHUD()}
+
+// ─── GAME LOOP ────────────────────────────────────────────
+function loop(ts){updateTime(ts);requestAnimationFrame(loop)}
+
+// ─── INIT ─────────────────────────────────────────────────
+document.getElementById('btn-pause').addEventListener('click',function(){G.paused=!G.paused;G.time.last=0;this.textContent=G.paused?'▶':'⏸'});
+
+G.init();
+// Try auto-load
+if(localStorage.getItem('ce_save')){addLog('Save detected. Type in console: G.load() to restore.','i')}
+updateHUD();render();renderLog();
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
