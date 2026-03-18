@@ -463,14 +463,16 @@ const G={
   eventChains:[],
   perkRacketBonus:0,perkDecayBoost:0,perkJobBonus:0,perkEarlyFronts:false,perkBetrayalDelay:14,
   betrayalSurvived:false,
+  _investigation:null,
 
   init(){
     this.p=new Player();
     for(const[k,t]of Object.entries(NPCS))this.npcs[t.id]=new NPC(t);
     ['row_a','row_b','row_c','row_d','docks_a','oq_a','strip_a'].forEach(b=>{for(let i=0;i<3;i++){const c=makeCiv(b);this.npcs[c.id]=c}});
     this.genJobs();
-    this.log=[];
+    this.log=[];this._investigation=null;
     addLog('You step onto the rain-slicked streets of The Row. No crew. No cash. No rep. Time to change that.','st');
+    setTimeout(()=>{if(typeof initHiddenInfo==='function')initHiddenInfo()},0);
   },
 
   npcsHere(){return Object.values(this.npcs).filter(n=>n.block===this.p.block&&n.alive)},
@@ -612,14 +614,15 @@ function forecast(action,npc){
       f.reward.push(`Fear +${npc.personality==='cowardly'?30:20}`);
       f.reward.push('Rep +5, silences witnesses');
       f.risk.push(`Heat +${Math.round((3+(actCount>0?4:2))*risk.heatMod)}`);
-      f.risk.push(`${Math.round(100-RNG.skill(p.skills.intimidation,npc.nerve).chance)}% fail chance`);
-      if(npc.personality==='aggressive')f.risk.push('May fight back (-1 HP)');
-      if(actCount>=2)f.risk.push(`Pattern alert! ${actCount} prior actions here`);
-      f.short.push('Fear spreads to '+Math.min(3,Math.floor(blk.pop/25))+' nearby NPCs');
-      f.long.push(avgFear>40?'Block fear already high → businesses complying':'More threats needed for block compliance');
-      f.long.push('3+ threats on one NPC → permanent grudge');
-      if(npc.timesThreated>=2)f.risk.push(`Already threatened ${npc.timesThreated}x — grudge risk!`);
-      if(p.heat>40)f.risk.push('High heat — cops may escalate');
+      const failLvl=RNG.skill(p.skills.intimidation,npc.nerve).chance;
+      f.risk.push(failLvl>70?'Likely to work':failLvl>45?'Decent chance':'Risky — they seem tough');
+      if(npc.personality==='aggressive')f.risk.push('Looks like they\'d fight back');
+      if(actCount>=2)f.risk.push('You\'ve been active here — cops may notice');
+      f.short.push('Bystanders will notice');
+      f.long.push(avgFear>40?'This block is already scared — businesses falling in line':'Block needs more pressure');
+      f.long.push('Push too hard → permanent grudge');
+      if(npc.timesThreated>=2)f.risk.push('You\'ve pushed this one before — careful');
+      if(p.heat>40)f.risk.push('Heat is high — dangerous');
       break;
     case'bribe':
       const bc=bribeCost(npc);
@@ -636,7 +639,8 @@ function forecast(action,npc){
       const rac=p.rackets.find(r=>r.npcId===npc.id&&r.missed>0);
       if(rac)f.reward.push(`Collect $${rac.pay*rac.missed} owed`);
       f.risk.push('Fear spreads to nearby NPCs');
-      f.risk.push(`${Math.round(100-RNG.skill(p.skills.intimidation,npc.nerve).chance)}% fail chance`);
+      const colChance=RNG.skill(p.skills.intimidation,npc.nerve).chance;
+      f.risk.push(colChance>60?'They\'ll probably pay up':'They might resist');
       f.short.push('+Territory control, +Rep');
       f.long.push('Successful collection strengthens block control');
       if(npc.nerve>50)f.risk.push('High nerve — may fight back');
@@ -645,8 +649,9 @@ function forecast(action,npc){
       const val=200+p.tier*150;
       f.reward.push(`~$${Math.floor(val*.2)} profit`);
       f.reward.push('Rep +8, supplier trust grows');
-      f.risk.push(`Sting chance: ${Math.round(Math.max(2,5+p.heat*.5-p.skills.streetSmarts*3))}%`);
-      if(p.heat>30)f.risk.push('High heat increases sting chance significantly');
+      const stingLvl=Math.max(2,5+p.heat*.5-p.skills.streetSmarts*3);
+      f.risk.push(stingLvl>25?'High sting risk — cops are watching':stingLvl>10?'Moderate sting risk':'Low sting risk');
+      if(p.heat>30)f.risk.push('Heat makes deals more dangerous');
       f.short.push(risk.payMod>1?`Night bonus: +${Math.round((risk.payMod-1)*100)}% pay`:'Daytime — standard rates');
       f.long.push('Trust builds → bulk discounts later');
       f.long.push('Getting arrested crashes everything — territory, crew, economy');
@@ -812,6 +817,235 @@ function doStrategicAction(id){
   render();updateHUD();
 }
 
+// ═══════════════════════════════════════════════════════════
+// POWER SYSTEM — Empire scale determines cop/rival dynamics
+// ═══════════════════════════════════════════════════════════
+function getPower(){
+  const p=G.p;
+  const blocks=Object.values(BLK).filter(b=>b.ctrl.player>=50).length;
+  const crewStr=p.crew.reduce((s,c)=>s+c.loyalty*.1+c.hp,0);
+  const income=p.rackets.filter(r=>r.active).reduce((s,r)=>s+r.pay,0)+p.fronts.filter(f=>!f.raided).reduce((s,f)=>s+f.legit,0);
+  const score=blocks*10+crewStr+Math.floor(income/100)+p.tier*15+Math.floor(p.rep/200);
+  // Thresholds: 0-30 nobody, 31-60 rising, 61-100 powerful, 101-150 dominant, 151+ untouchable
+  return{score,blocks,crewStr,income,
+    level:score>150?'untouchable':score>100?'dominant':score>60?'powerful':score>30?'rising':'nobody',
+    copsFearYou:score>80,// Cops start avoiding/deferring
+    autoBodyguards:score>50,// Muscle crew auto-follows
+    canIntimidateRivals:score>120,// Can force rivals to submit
+  };
+}
+
+// ─── COP POWER DYNAMICS ──────────────────────────────────
+// When powerful enough, cops lower heat on sight, avoid confrontation
+function applyCopPower(){
+  const pw=getPower();if(!pw.copsFearYou)return;
+  const p=G.p;
+  // Corrupt all beat cops in controlled territory automatically
+  for(const n of Object.values(G.npcs)){
+    if(n.role==='cop'&&n.sub==='beat_cop'&&!n.sub.startsWith('corrupt_')){
+      const blk=BLK[n.block];
+      if(blk&&blk.ctrl.player>=60){
+        n.sub='corrupt_beat_cop';n.loyalty=40;
+        if(!p.contacts.includes(n.id))p.contacts.push(n.id);
+      }
+    }
+  }
+  // Power reduces heat passively
+  if(pw.level==='dominant'&&p.heat>0&&RNG.chance(30))addHeat(-1,'power_influence');
+  if(pw.level==='untouchable'&&p.heat>0)addHeat(-2,'untouchable');
+  // Wanted system weakened
+  if(pw.level==='untouchable'&&G.wanted.active){G.wanted.intensity=Math.max(0,G.wanted.intensity-1);
+    if(G.wanted.intensity<=0){G.wanted.active=false;addLog('Your power has made you untouchable. Wanted status lifted.','r')}}
+}
+
+// ─── BODYGUARD AUTO-ASSIGN ───────────────────────────────
+function autoAssignBodyguards(){
+  const pw=getPower();if(!pw.autoBodyguards)return;
+  const p=G.p;
+  // Muscle crew that isn't stationed anywhere follows the player
+  for(const c of p.crew){
+    if(c.spec==='muscle'&&c.loyalty>=30){
+      // Remove from block stations — they follow you now
+      const stationed=Object.values(BLK).some(b=>b.crew.some(x=>x.id===c.id));
+      if(!stationed){c.block=p.block;/* NPC AI handles follow via existing bodyguard code */}
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RIVAL MEETINGS — Sit down with gang leaders
+// ═══════════════════════════════════════════════════════════
+function meetRival(rivalId){
+  const r=G.rivals[rivalId];if(!r)return;
+  const p=G.p,pw=getPower();
+  const canIntimidate=pw.canIntimidateRivals&&pw.score>r.str*1.5;
+  const meetText=`You sit down with the leader of the ${r.name}. Bodyguards line the walls. The tension is thick.`;
+  const choices=[
+    {label:'Negotiate territory split',sub:'Propose borders. They keep their core, you keep yours. Hostility drops.'},
+    {label:'Demand tribute',sub:`They pay you $${Math.floor(500*p.tier)}/week. Persuasion check. Fail = they attack.`},
+    {label:'Propose alliance',sub:'Joint operations against the third gang. Shared intel. No attacks for 30 days.'},
+    {label:'Declare war',sub:'Take everything. Your crew vs theirs. All-out war.'},
+  ];
+  if(canIntimidate)choices.push({label:'Intimidate into submission',sub:`Your empire dwarfs theirs. Force them to work FOR you. (Power: ${pw.score} vs Str: ${r.str})`});
+  // Hidden: the rival may have set a trap
+  const isTrap=r.hostility>60&&RNG.chance(25);// Player doesn't know this
+  const isBluff=r.str<30&&RNG.chance(40);// Rival may be bluffing strength
+
+  showModal(`Meeting: ${r.name}`,meetText,choices);
+  modalCB=i=>{
+    if(i===0){// Negotiate
+      r.hostility=Math.max(0,r.hostility-20);r.phase='passive';r.timer=21;
+      addLog(`Territory agreement reached with ${r.name}. Tensions ease.`,'s');addRep(10,'diplomacy');G.notoriety.cunning+=3;
+      // But they may not honor it...
+      if(r.hostility>30)r._breakDeal=G.time.day+RNG.int(7,21);// Hidden: may break deal later
+    }else if(i===1){// Demand tribute
+      const ck=RNG.skill(p.skills.persuasion+Math.floor(pw.score*.05),50+r.str*.3);
+      if(ck.ok){
+        p.rackets.push({npcId:'rival_'+r.id,pay:Math.floor(500*p.tier),active:true,missed:0,block:p.block});
+        r.hostility=Math.min(100,r.hostility+10);r.phase='passive';r.timer=14;
+        addLog(`${r.name} agrees to pay tribute. They're furious but compliant.`,'r');addRep(20,'tribute');G.notoriety.violent+=3;
+      }else{
+        r.phase='attack';r.timer=1;r.hostility=Math.min(100,r.hostility+30);
+        addLog(`${r.name} slams the table. "You want a war? You got one."`,'d');addHeat(10,'war_declared');
+      }
+    }else if(i===2){// Alliance
+      const otherRivals=Object.values(G.rivals).filter(x=>x.id!==r.id);
+      const target=RNG.pick(otherRivals);
+      r.hostility=Math.max(0,r.hostility-15);r.phase='passive';r.timer=30;
+      if(target){target.hostility=Math.min(100,target.hostility+15);
+        addLog(`Alliance formed with ${r.name} against ${target.name}. 30 days of peace.`,'s')}
+      else addLog(`Alliance formed with ${r.name}.`,'s');
+      addRep(15,'alliance');G.notoriety.cunning+=5;
+      // Hidden: alliance may be a setup
+      if(isTrap){r._betrayAlliance=G.time.day+RNG.int(5,15)}// They'll betray the alliance
+    }else if(i===3){// War
+      r.phase='attack';r.timer=0;r.hostility=100;
+      addLog(`War declared on ${r.name}! No turning back.`,'d');addHeat(15,'war');addRep(15,'war');G.notoriety.violent+=5;
+      // Rival retaliates immediately
+      const tgts=Object.values(BLK).filter(b=>b.ctrl.player>20);
+      if(tgts.length){const t=RNG.pick(tgts);t.ctrl.player=Math.max(0,t.ctrl.player-15);recalc(t);
+        addLog(`${r.name} retaliates — ${t.name} hit! -15% control.`,'d')}
+    }else if(i===4&&canIntimidate){// Submit
+      r.hostility=0;r.phase='passive';r.timer=999;r.str=Math.floor(r.str*.3);
+      // Their territory becomes yours
+      Object.values(BLK).filter(b=>b.ctrl[r.id]>0).forEach(b=>{
+        const gain=Math.floor(b.ctrl[r.id]*.6);b.ctrl.player=Math.min(100,b.ctrl.player+gain);b.ctrl[r.id]=Math.floor(b.ctrl[r.id]*.4);recalc(b);
+      });
+      addLog(`${r.name} kneels. Their territory is yours. Their crew answers to you now.`,'r');
+      addRep(50,'subjugation');G.notoriety.violent+=10;G.notoriety.business+=5;
+      // Recruit some of their crew
+      for(let i=0;i<2;i++){const nc=makeCiv(p.block);nc.spec=RNG.pick(['muscle','lookout','driver']);nc.salary=RNG.int(80,200);nc.role='crew';nc.worksFor='player';nc.loyalty=30;p.crew.push(nc);G.npcs[nc.id]=nc}
+      addLog('2 former rival crew members join your ranks.','s');
+    }
+    render();updateHUD();
+  };
+}
+
+// Process hidden rival betrayals (checked in dayTick)
+function checkRivalBetrayal(){
+  for(const r of Object.values(G.rivals)){
+    if(r._breakDeal&&G.time.day>=r._breakDeal){
+      r._breakDeal=null;r.phase='provoke';r.timer=3;r.hostility=Math.min(100,r.hostility+25);
+      addLog(`${r.name} broke the deal! They're moving against your territory.`,'d');
+    }
+    if(r._betrayAlliance&&G.time.day>=r._betrayAlliance){
+      r._betrayAlliance=null;r.phase='attack';r.timer=1;r.hostility=Math.min(100,r.hostility+40);
+      addLog(`The alliance was a TRAP! ${r.name} launches a surprise attack!`,'d');addHeat(10,'betrayed');
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOG OF WAR — Hidden information system
+// ═══════════════════════════════════════════════════════════
+// NPCs have hidden attributes the player can't see directly
+// They must be revealed through interaction or intel
+
+function initHiddenInfo(){
+  for(const n of Object.values(G.npcs)){
+    // Hidden intentions
+    n._hiddenIntent=RNG.wpick({honest:50,deceptive:15,scheming:10,desperate:15,undercover:n._isUndercover?100:0,informant:5});
+    // Hidden betrayal modifier — makes actual betrayal chance different from what loyalty suggests
+    n._betrayalMod=RNG.int(-10,10);// Adds/subtracts from the apparent loyalty threshold
+    // Hidden cop connection — some civilians secretly talk to cops
+    n._copConnection=(!n._isUndercover&&n.role==='civilian')?RNG.chance(10):false;
+    // Revealed flags — what the player has uncovered
+    n._revealed={intent:false,betrayMod:false,copConn:false};
+  }
+}
+
+// Hidden police investigation — player doesn't know it's happening
+function startHiddenInvestigation(){
+  if(G._investigation)return;// Only one at a time
+  G._investigation={day:G.time.day,target:G.p.block,severity:G.p.heat>60?'major':'minor',daysLeft:RNG.int(5,14),revealed:false};
+}
+function processInvestigation(){
+  if(!G._investigation)return;
+  const inv=G._investigation;
+  inv.daysLeft--;
+  // Loyal contacts may reveal it
+  if(!inv.revealed){
+    for(const n of Object.values(G.npcs)){
+      if(n.loyalty>=55&&(n.role==='contact'||n.worksFor==='player')&&RNG.chance(n.loyalty*.3)){
+        addLog(`${n.name} whispers: "There's an investigation into your operations on ${BLK[inv.target]?.name||'your block'}. Be careful."`,'w');
+        inv.revealed=true;break;
+      }
+    }
+  }
+  // Cop-connected civilians feed info
+  for(const n of Object.values(G.npcs)){
+    if(n._copConnection&&n.block===inv.target&&RNG.chance(8)){
+      inv.daysLeft=Math.max(1,inv.daysLeft-1);// Investigation accelerates
+    }
+  }
+  if(inv.daysLeft<=0){
+    // Investigation concludes
+    if(inv.severity==='major'){
+      addHeat(RNG.int(15,25),'investigation');
+      addLog('A major police investigation concluded. Evidence gathered against you!','d');
+      // May trigger raid
+      if(G.p.heat>50)policeRaid();
+    }else{
+      addHeat(RNG.int(5,12),'investigation');
+      addLog('Police wrapped up a minor investigation into your block.','w');
+    }
+    G._investigation=null;
+  }
+}
+
+// Fog the displayed NPC stats — show vague descriptions instead of exact numbers
+function fogStat(value,revealed){
+  if(revealed)return value;// Player has intel
+  // Show vague descriptor instead of number
+  if(value>=80)return'Very High';if(value>=60)return'High';if(value>=40)return'Moderate';if(value>=20)return'Low';return'Very Low';
+}
+function fogStatColor(value){
+  if(typeof value==='string'){// Fogged
+    if(value==='Very High')return'var(--red)';if(value==='High')return'var(--orange)';if(value==='Moderate')return'var(--text)';return'var(--dim)';
+  }
+  if(value>=60)return'var(--red)';if(value>=40)return'var(--orange)';return'var(--dim)';
+}
+
+// Check if player has intel on an NPC (through talk, bribe, or crew intel)
+function hasIntel(npc){
+  return npc.timesTalked>=3||npc.timesBribed>=2||npc.worksFor==='player'||npc.loyalty>=60||G.p.skills.streetSmarts>=4;
+}
+
+// Reveal hidden intent through interaction
+function revealCheck(npc){
+  if(npc._revealed?.intent)return;
+  // Street Smarts or high interaction count reveals hidden info
+  const chance=G.p.skills.streetSmarts*8+(npc.timesTalked||0)*5+(npc.timesBribed||0)*8;
+  if(RNG.chance(Math.min(70,chance))){
+    npc._revealed=npc._revealed||{};npc._revealed.intent=true;
+    if(npc._hiddenIntent==='deceptive')addLog(`You sense ${npc.name} isn't being straight with you. Something's off.`,'w');
+    else if(npc._hiddenIntent==='scheming')addLog(`${npc.name}'s eyes betray calculation. They're planning something.`,'w');
+    else if(npc._hiddenIntent==='desperate')addLog(`${npc.name} seems desperate. Unpredictable.`,'w');
+    else if(npc._hiddenIntent==='undercover')addLog(`Wait... ${npc.name}'s shoes are too clean. Could be undercover.`,'w');
+    else if(npc._hiddenIntent==='informant')addLog(`${npc.name} seems to know too much about police movements. Informant?`,'w');
+  }
+}
+
 // ─── INTERACTION SYSTEM ───────────────────────────────────
 function getActions(npc){
   const p=G.p,a=[];
@@ -877,6 +1111,8 @@ function doAction(id,npcId){
       checkUndercoverReveal(G.p.block);break;
     default:return;
   }
+  // ── REVEAL CHECK: interactions may uncover hidden info ──
+  revealCheck(n);
   // ── CASCADE: ripple this action across all systems ──
   cascade(id,G.p.block,{success:r.ok,failure:!r.ok,npc:n});
   showResult(npcId,r);
@@ -1855,6 +2091,12 @@ function dayTick(){
   checkLoyalWarnings();
   spawnUndercoverCop();
   checkGrudgeActions();
+  applyCopPower();// Power over cops
+  autoAssignBodyguards();// Auto bodyguard flanking
+  checkRivalBetrayal();// Hidden rival deal-breaking
+  processInvestigation();// Hidden police investigations
+  // Start hidden investigations occasionally
+  if(G.p.heat>35&&!G._investigation&&RNG.chance(8))startHiddenInvestigation();
   // Daily cascade check: heat spillover + economic pattern detection
   cascade('daily_tick',G.p.block,{});
   // Cop presence natural decay (prevents permanent escalation)
@@ -2007,6 +2249,9 @@ function updateHUD(){
   $('h-heat').textContent=p.heat;$('h-hbar').style.width=p.heat+'%';$('h-hbar').style.background=h.c;$('h-htier').textContent=h.n;
   $('h-wanted').innerHTML=G.wanted.active?`<span class="wanted-tag">WANTED ${G.wanted.intensity}</span>`:'';
   $('h-rep').textContent=p.rep;$('h-rtitle').textContent=t.title;
+  // Power level indicator
+  const pw=getPower();
+  if(pw.level!=='nobody'){$('h-rtitle').textContent=t.title+' | '+pw.level.charAt(0).toUpperCase()+pw.level.slice(1)}
   $('h-hp').textContent=p.hp+'/'+p.maxHp;$('h-crew').textContent=p.crew.length+'/'+p.crewSlots;
   $('h-loc').textContent=BLK[p.block]?.name||p.block;
   const hr=tm.hr%12||12,ap=tm.hr<12?'AM':'PM';
@@ -2059,7 +2304,7 @@ function renderExplore(c){
     h+=`<div class="npc" onclick="showNPC('${n.id}')">
       <div class="npc-h"><span class="npc-icon">${ic}</span><span class="npc-name">${n.name}</span>${pTag}${wt}${crewTag}${specTag}</div>
       <div class="npc-role">${n.role}${n.sub?' — '+n.sub:''}${n.spec&&n.role!=='crew'?' ('+n.spec+')':''}</div>
-      <div class="npc-stats"><span title="Loyalty">❤️ ${n.loyalty}</span><span title="Fear">😨 ${n.fear}</span><span title="Nerve">💪 ${n.nerve}</span>${n.mood&&n.mood!=='neutral'?`<span title="${getMoodModifier(n).desc}" style="color:${n.mood==='friendly'||n.mood==='grateful'?'var(--green)':n.mood==='hostile'?'var(--red)':n.mood==='terrified'?'var(--orange)':'var(--dim)'}">${{friendly:'😊',hostile:'😠',terrified:'😰',grateful:'🙏',suspicious:'🤨'}[n.mood]||''} ${n.mood}</span>`:''}</div>
+      <div class="npc-stats"><span title="Loyalty">❤️ ${hasIntel(n)?n.loyalty:fogStat(n.loyalty)}</span><span title="Fear">😨 ${hasIntel(n)?n.fear:fogStat(n.fear)}</span><span title="Nerve">💪 ${hasIntel(n)?n.nerve:fogStat(n.nerve)}</span>${n.mood&&n.mood!=='neutral'?`<span title="${getMoodModifier(n).desc}" style="color:${n.mood==='friendly'||n.mood==='grateful'?'var(--green)':n.mood==='hostile'?'var(--red)':n.mood==='terrified'?'var(--orange)':'var(--dim)'}">${{friendly:'😊',hostile:'😠',terrified:'😰',grateful:'🙏',suspicious:'🤨'}[n.mood]||''} ${n.mood}</span>`:''}</div>
       <div class="npc-desc">${n.desc}</div></div>`;
   }
   h+=`</div><div id="apanel" class="sec"></div>`;
@@ -2072,19 +2317,34 @@ function showNPC(id){
   const acts=getActions(n);
   const panel=document.getElementById('apanel');if(!panel)return;
   const risk=calcRisk('general',n);
+  const intel=hasIntel(n);
   const pDesc=n.personality?` | ${n.personality}: ${PERS_DESC[n.personality]||''}`:'';
   const mm=getMoodModifier(n);
   const moodLine=n.mood&&n.mood!=='neutral'?` | Mood: ${n.mood}${mm.desc?' — '+mm.desc:''}`:'';
   const memLine=n.memory.length>0?` | Remembers ${n.memory.length} interaction${n.memory.length>1?'s':''}`:'';
   const grudgeLine=n.grudge?' | ⚠️ HOLDS A GRUDGE':'';
+  // Hidden intent display
+  const intentLine=n._revealed?.intent?` | Intent: <span style="color:var(--orange)">${n._hiddenIntent}</span>`:'';
+  const copConnLine=n._revealed?.copConn&&n._copConnection?' | <span style="color:var(--red)">⚠ Talks to cops</span>':'';
+  // Fogged stats for NPCs you don't have intel on
+  const loyD=intel?n.loyalty:fogStat(n.loyalty);const fearD=intel?n.fear:fogStat(n.fear);
+  const nervD=intel?n.nerve:fogStat(n.nerve);const trustD=intel?n.trust:fogStat(n.trust);
+  const pw=getPower();
   let h=`<h3>Interact: ${n.name}</h3>
-    <div class="act-stats"><span>Loyalty: ${n.loyalty}</span><span>Fear: ${n.fear}</span><span>Trust: ${n.trust}</span><span>Nerve: ${n.nerve}</span><span>HP: ${n.hp}/${n.maxHp}</span>${n.personality?`<span class="ptag ptag-${n.personality}">${n.personality}</span>`:''}</div>
-    <div class="risk-tip"><span class="rdot rdot-${risk.level}"></span>${risk.tip}${pDesc}${moodLine}${memLine}${grudgeLine}</div>
+    <div class="act-stats"><span style="color:${fogStatColor(loyD)}">Loyalty: ${loyD}</span><span style="color:${fogStatColor(fearD)}">Fear: ${fearD}</span><span style="color:${fogStatColor(trustD)}">Trust: ${trustD}</span><span style="color:${fogStatColor(nervD)}">Nerve: ${nervD}</span><span>HP: ${n.hp}/${n.maxHp}</span>${n.personality?`<span class="ptag ptag-${n.personality}">${n.personality}</span>`:''}</div>
+    ${!intel?'<div style="font-size:10px;color:var(--dim);margin-bottom:4px">Stats hidden — talk 3x, bribe 2x, or raise Street Smarts to reveal exact numbers</div>':''}
+    <div class="risk-tip"><span class="rdot rdot-${risk.level}"></span>${risk.tip}${pDesc}${moodLine}${memLine}${grudgeLine}${intentLine}${copConnLine}</div>
+    ${pw.copsFearYou&&n.role==='cop'?'<div style="font-size:11px;color:var(--gold);margin:4px 0">Your power keeps this cop in line.</div>':''}
+    ${pw.level==='dominant'||pw.level==='untouchable'?'<div style="font-size:11px;color:var(--gold);margin:4px 0">Power Level: '+pw.level.toUpperCase()+' ('+pw.score+')</div>':''}
     <div class="acts">`;
   for(const a of acts){
     const rdot=a.id==='talk'?'low':risk.level;
     if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')" onmouseenter="showForecast('${a.id}','${n.id}')" onmouseleave="hideForecast()"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
     else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
+  }
+  // Rival meeting button
+  if(n.role==='rival'&&n.worksFor&&G.rivals[n.worksFor]){
+    h+=`<button class="abtn" style="border-color:var(--red);color:var(--red)" onclick="closeNPC();meetRival('${n.worksFor}')">Request Meeting with ${G.rivals[n.worksFor].name} Leader</button>`;
   }
   h+=`<button class="abtn abtn-x" onclick="closeNPC()">Walk Away</button></div><div id="fc-preview"></div><div id="ares"></div>`;
   panel.innerHTML=h;panel.scrollIntoView({behavior:'smooth'});
@@ -2208,7 +2468,9 @@ function renderMap(c){
   h+=`<h3>⚔️ Rivals</h3>`;
   for(const r of Object.values(G.rivals)){
     const pc={passive:'#666',probe:'#ffa500',provoke:'#ff6347',attack:'#ff0000'}[r.phase]||'#666';
-    h+=`<div class="rcard"><span class="rname">${r.name}</span><span>Hostility: ${r.hostility}</span><span style="color:${pc}">Phase: ${r.phase}</span><span>Str: ${r.str}</span></div>`}
+    const canMeet=G.p.tier>=3;
+    h+=`<div class="rcard"><span class="rname">${r.name}</span><span>Hostility: ${fogStat(r.hostility)}</span><span style="color:${pc}">Phase: ${r.phase==='passive'?'???':r.phase}</span><span>Str: ${fogStat(r.str)}</span>
+    ${canMeet?`<button class="abtn abtn-s" onclick="meetRival('${r.id}')">Meet</button>`:'<span style="font-size:10px;color:var(--dim)">Need Enforcer</span>'}</div>`}
   h+=`</div>`;c.innerHTML=h;
 }
 
