@@ -180,11 +180,61 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
 /* Locked districts */
 .nbtn.locked{opacity:.4;cursor:not-allowed;border-style:dashed}
 
-@media(max-width:900px){.game{grid-template-columns:1fr;grid-template-rows:auto 300px 1fr auto}#world{height:300px}.logbar{max-height:150px}.hud{gap:8px}}
+/* Home Screen */
+.home{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.home.hidden{display:none}
+.home-inner{max-width:600px;width:90%;text-align:center}
+.home h1{font-size:48px;font-weight:700;color:var(--accent);margin-bottom:4px;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:4px;text-shadow:0 0 30px rgba(74,158,255,.3)}
+.home h1 span{color:var(--red)}
+.home .subtitle{color:var(--dim);font-size:14px;margin-bottom:32px;font-style:italic}
+.home-controls{text-align:left;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:24px}
+.home-controls h3{color:var(--accent);margin-bottom:12px;font-size:14px}
+.ctrl-grid{display:grid;grid-template-columns:100px 1fr;gap:6px 16px;font-size:13px}
+.ctrl-key{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:700;text-align:right}
+.ctrl-desc{color:var(--text)}
+.home-start{padding:14px 48px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:16px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:.2s;text-transform:uppercase;letter-spacing:2px}
+.home-start:hover{background:#6bb5ff;transform:scale(1.05)}
+.home-load{padding:10px 32px;background:var(--card);color:var(--accent);border:1px solid var(--accent);border-radius:6px;font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;margin-left:12px;transition:.2s}
+.home-load:hover{background:var(--accent);color:#000}
+.home-tip{color:var(--dim);font-size:11px;margin-top:16px}
+.home-ver{color:var(--dim);font-size:10px;margin-top:24px;opacity:.5}
+
+@media(max-width:900px){.game{grid-template-columns:1fr;grid-template-rows:auto 300px 1fr auto}#world{height:300px}.logbar{max-height:150px}.hud{gap:8px}.home h1{font-size:28px}}
 </style>
 </head>
 <body>
-<div class="game">
+<!-- HOME SCREEN -->
+<div class="home" id="home-screen">
+  <div class="home-inner">
+    <h1>Crime <span>Empire</span></h1>
+    <div class="subtitle">Build your criminal empire from nothing.</div>
+    <div class="home-controls">
+      <h3>Controls</h3>
+      <div class="ctrl-grid">
+        <span class="ctrl-key">W A S D</span><span class="ctrl-desc">Move your character</span>
+        <span class="ctrl-key">Arrow Keys</span><span class="ctrl-desc">Move (alternate)</span>
+        <span class="ctrl-key">E</span><span class="ctrl-desc">Interact with nearby NPCs</span>
+        <span class="ctrl-key">1x 3x 5x</span><span class="ctrl-desc">Game speed controls (top bar)</span>
+        <span class="ctrl-key">Space</span><span class="ctrl-desc">Pause / Resume</span>
+      </div>
+      <br>
+      <h3>How to Play</h3>
+      <div style="font-size:12px;color:var(--text);line-height:1.6">
+        Walk around The Row and approach NPCs. Press <b>E</b> to talk, threaten, bribe, deal, recruit, or shakedown.
+        Build rep to unlock new districts, crew slots, and abilities. Manage your heat — cops get aggressive when it rises.
+        Earn dirty money, launder it through front businesses, and expand your territory block by block.
+      </div>
+    </div>
+    <div>
+      <button class="home-start" onclick="startGame(false)">Start Game</button>
+      <button class="home-load" id="home-load-btn" onclick="startGame(true)" style="display:none">Load Save</button>
+    </div>
+    <div class="home-tip">100% free. Zero dependencies. Runs entirely in your browser.</div>
+    <div class="home-ver">Crime Empire v1.0 — Pure HTML/CSS/JS</div>
+  </div>
+</div>
+
+<div class="game" style="display:none" id="game-container">
   <div class="hud">
     <div class="hg"><span class="hl">Cash</span><span class="hv hv-cash" id="h-cash">$0</span></div>
     <div class="hg"><span class="hl">Heat</span><span class="hv hv-heat" id="h-heat">0</span>
@@ -1469,7 +1519,8 @@ function initNPCWorld(){
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();keys[k]=true;
   if(k==='e'&&!G.paused)tryWorldInteract();
-  if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();
+  if(k===' '&&gameStarted){G.paused=!G.paused;G.time.last=0;const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
+  if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
 });
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
 
@@ -1741,34 +1792,96 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
+// ─── CHEAT CODE DETECTION ─────────────────────────────────
+let cheatBuf='';
+document.addEventListener('keydown',e=>{
+  // Only capture on home screen
+  if(!document.getElementById('home-screen').classList.contains('hidden')){
+    cheatBuf+=e.key.toLowerCase();
+    if(cheatBuf.length>10)cheatBuf=cheatBuf.slice(-10);
+    if(cheatBuf.includes('srg2')){
+      cheatBuf='';
+      document.querySelector('.home-start').textContent='GOD MODE';
+      document.querySelector('.home-start').style.background='var(--red)';
+      document.querySelector('.home-start').onclick=()=>startGame(false,true);
+      document.querySelector('.home-tip').textContent='Cheat code activated. You will start as Kingpin with max everything.';
+      document.querySelector('.home-tip').style.color='var(--red)';
+    }
+  }
+});
+
+function applyGodMode(){
+  const p=G.p;
+  p.cash.dirty=500000;p.cash.clean=500000;p.cash.stashed=200000;
+  p.rep=60000;p.tier=7;p.crewSlots=20;
+  p.hp=10;p.maxHp=10;
+  p.skills={intimidation:8,persuasion:8,streetSmarts:8,operations:8,leadership:8};
+  p.skillPts=5;
+  p.arrests=0;p.heat=0;
+  G.notoriety={violent:100,cunning:100,business:100,shadow:100};
+  // Unlock all milestones
+  for(const m of MILESTONES){G.milestonesDone[m.id]=1;m.fx()}
+  // Give fronts
+  ['nightclub','restaurant','laundromat','car_wash'].forEach(t=>{
+    const f=FRONTS[t];p.fronts.push({type:t,cost:f.cost,cut:f.cut,cap:f.cap,legit:f.legit,washed:0,raided:false,cooldown:0});
+  });
+  // Recruit all named crew
+  for(const n of Object.values(G.npcs)){
+    if(n.spec&&n.role!=='rival'&&n.role!=='cop'){
+      n.role='crew';n.worksFor='player';n.loyalty=90;n.fear=0;n.betrayDays=0;
+      if(!p.crew.some(c=>c.id===n.id))p.crew.push(n);
+    }
+  }
+  // Max territory in The Row
+  ['row_a','row_b','row_c','row_d'].forEach(bid=>{BLK[bid].ctrl.player=100;recalc(BLK[bid])});
+  // Give rackets on existing civilians
+  const civs=Object.values(G.npcs).filter(n=>n.role==='civilian'&&!n.spec);
+  for(let i=0;i<Math.min(5,civs.length);i++){
+    p.rackets.push({npcId:civs[i].id,pay:500,active:true,missed:0,block:civs[i].block});
+    civs[i].fear=60;
+  }
+  LAIR.unlocked=true;
+  addLog('GOD MODE ACTIVATED. You are the Kingpin. All districts unlocked. Max stats. Max cash.','r');
+}
+
 // ─── INIT ─────────────────────────────────────────────────
-document.getElementById('btn-pause').addEventListener('click',function(){G.paused=!G.paused;G.time.last=0;this.textContent=G.paused?'▶':'⏸'});
+let gameStarted=false;
+function startGame(loadSave,godMode=false){
+  document.getElementById('home-screen').classList.add('hidden');
+  document.getElementById('game-container').style.display='';
+  if(gameStarted)return;
+  gameStarted=true;
 
-// Override moveTo for canvas teleporting
-const _origMoveTo=G.moveTo.bind(G);
-G.moveTo=function(blk){
-  const old=this.p.block;
-  _origMoveTo(blk);
-  if(this.p.block!==old){const c=blockCenter(blk);PW.x=c.x;PW.y=c.y;CAM.x=PW.x-cvs.width/2;CAM.y=PW.y-cvs.height/2}
-};
-// Override closeNPC to unpause
-const _origClose=closeNPC;
-closeNPC=function(){_origClose();G.paused=false};
+  document.getElementById('btn-pause').addEventListener('click',function(){G.paused=!G.paused;G.time.last=0;this.textContent=G.paused?'▶':'⏸'});
 
-G.init();
-initBlockRegions();
-genWorld();
+  // Override moveTo for canvas teleporting
+  const _origMoveTo=G.moveTo.bind(G);
+  G.moveTo=function(blk){
+    const old=this.p.block;
+    _origMoveTo(blk);
+    if(this.p.block!==old){const c=blockCenter(blk);PW.x=c.x;PW.y=c.y;CAM.x=PW.x-cvs.width/2;CAM.y=PW.y-cvs.height/2}
+  };
+  const _origClose=closeNPC;
+  closeNPC=function(){_origClose();G.paused=false};
 
-// Place player
-const startC=blockCenter('row_a');PW.x=startC.x;PW.y=startC.y;
-initNPCWorld();
-checkLair();
+  G.init();
+  initBlockRegions();
+  genWorld();
 
-resizeCanvas();
-window.addEventListener('resize',resizeCanvas);
-if(localStorage.getItem('ce_save')){addLog('Save found. Run G.load() in console to restore.','i')}
-updateHUD();render();renderLog();
-requestAnimationFrame(loop);
+  if(loadSave){G.load()}
+  if(godMode){applyGodMode()}
+
+  const startC=blockCenter(G.p.block||'row_a');PW.x=startC.x;PW.y=startC.y;
+  initNPCWorld();
+  checkLair();
+  resizeCanvas();
+  window.addEventListener('resize',resizeCanvas);
+  updateHUD();render();renderLog();
+  requestAnimationFrame(loop);
+}
+
+// Show load button if save exists
+if(localStorage.getItem('ce_save')){document.getElementById('home-load-btn').style.display=''}
 </script>
 </body>
 </html>
