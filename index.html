@@ -234,6 +234,7 @@ body.on-home{overflow:auto}
         <span class="ctrl-key">E</span><span class="ctrl-desc">Interact with nearby NPCs</span>
         <span class="ctrl-key">1x 3x 5x</span><span class="ctrl-desc">Game speed controls (top bar)</span>
         <span class="ctrl-key">Space</span><span class="ctrl-desc">Pause / Resume</span>
+        <span class="ctrl-key">M</span><span class="ctrl-desc">Open fullscreen map / fast travel</span>
       </div>
       <br>
       <h3>How to Play</h3>
@@ -2988,11 +2989,141 @@ function initNPCWorld(){
 // ─── INPUT ────────────────────────────────────────────────
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();keys[k]=true;
-  if(k==='e'&&!G.paused)tryWorldInteract();
-  if(k===' '&&gameStarted){G.paused=!G.paused;G.time.last=0;const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
-  if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
+  if(k==='e'&&!G.paused&&!G._mapOpen)tryWorldInteract();
+  if(k==='m'&&gameStarted){toggleFullMap();e.preventDefault()}
+  if(k==='escape'&&G._mapOpen){closeFullMap();e.preventDefault()}
+  if(k===' '&&gameStarted&&!G._mapOpen){G.paused=!G.paused;G.time.last=0;const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
+  if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)&&!G._mapOpen)e.preventDefault();
 });
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+
+// ─── FULLSCREEN MAP ──────────────────────────────────────
+G._mapOpen=false;
+
+function toggleFullMap(){if(G._mapOpen)closeFullMap();else openFullMap()}
+
+function openFullMap(){
+  G._mapOpen=true;G.paused=true;
+  const old=document.getElementById('fullmap-overlay');if(old)old.remove();
+  const ov=document.createElement('div');ov.id='fullmap-overlay';
+  ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;z-index:150;background:rgba(5,5,15,.92);display:flex;flex-direction:column;align-items:center;padding:20px;overflow-y:auto';
+
+  const p=G.p,pw=getPower();
+  let h=`<div style="width:100%;max-width:900px">`;
+  h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h2 style="color:var(--accent);font-size:20px;font-family:'JetBrains Mono',monospace">CITY MAP</h2>
+    <div style="font-size:12px;color:var(--dim)">Click a block to fast-travel | <span style="color:var(--accent)">[M]</span> or <span style="color:var(--accent)">[ESC]</span> to close</div>
+  </div>`;
+
+  // Quick travel buttons for owned locations
+  const quickTravels=[];
+  if(LAIR.unlocked)quickTravels.push({label:'🏠 Lair',block:'row_a',color:'var(--gold)'});
+  for(const f of p.fronts){
+    if(!f.raided){
+      // Find a block in player territory for each front
+      const fblk=Object.keys(BLK).find(b=>BLK[b].ctrl.player>=30)||p.block;
+      quickTravels.push({label:'🏢 '+f.type,block:fblk,color:'var(--green)'});
+    }
+  }
+  if(p.safeHouses.length>0||LAIR.unlocked)quickTravels.push({label:'🛡️ Safe House',block:'row_a',color:'var(--accent)'});
+
+  if(quickTravels.length>0){
+    h+=`<div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--dim);align-self:center">Quick Travel:</span>`;
+    for(const qt of quickTravels){
+      h+=`<button onclick="mapTravelTo('${qt.block}')" style="padding:4px 12px;background:var(--card);border:1px solid ${qt.color};color:${qt.color};border-radius:4px;cursor:pointer;font-size:11px;font-family:'Inter',sans-serif">${qt.label}</button>`;
+    }
+    h+=`</div>`;
+  }
+
+  // Render district grid
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">`;
+
+  // Layout: Row 1: the_row, the_docks, midtown. Row 2: uptown, old_quarter, the_strip
+  const layout=[['the_row','the_docks','midtown'],['uptown','old_quarter','the_strip']];
+  for(const row of layout){
+    for(const did of row){
+      const dist=DIST[did];if(!dist)continue;
+      const dr=DREG[did];
+      const req=typeof DIST_REQ!=='undefined'?(DIST_REQ[did]||1):1;
+      const locked=p.tier<req;
+      const borderCol=locked?'var(--border)':'var(--accent)';
+
+      h+=`<div style="background:var(--card);border:2px solid ${borderCol};border-radius:8px;padding:12px;${locked?'opacity:.4':''}">`;
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-weight:700;font-size:14px;color:${locked?'var(--dim)':'var(--text)'}">${dist.name} ${locked?'🔒':''}</span>
+        ${locked?`<span style="font-size:10px;color:var(--dim)">Need ${TIERS[req-1]?.title}</span>`:''}
+      </div>`;
+      h+=`<p style="font-size:10px;color:var(--dim);margin-bottom:8px">${dist.desc}</p>`;
+
+      // Block grid within district
+      h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">`;
+      for(const bid of dist.blocks){
+        const blk=BLK[bid];if(!blk)continue;
+        const isCurrent=p.block===bid;
+        const ctrl=blk.ctrl.player;
+        const rivalCtrl=Math.max(blk.ctrl.kostarov,blk.ctrl.dragos,blk.ctrl.vega);
+        const bgCol=isCurrent?'rgba(74,158,255,.15)':ctrl>50?'rgba(74,158,255,.08)':rivalCtrl>50?'rgba(255,50,50,.08)':'var(--bg)';
+        const borderC=isCurrent?'var(--accent)':ctrl>50?'rgba(74,158,255,.4)':rivalCtrl>50?'rgba(255,50,50,.3)':'var(--border)';
+        const crewHere=blk.crew.length;
+        const npcCount=Object.values(G.npcs).filter(n=>n.block===bid&&n.alive).length;
+
+        h+=`<div onclick="${locked?'':`mapTravelTo('${bid}')`}" style="background:${bgCol};border:1px solid ${borderC};border-radius:4px;padding:8px;cursor:${locked?'not-allowed':'pointer'};transition:.15s;position:relative"
+          onmouseenter="this.style.transform='scale(1.03)'" onmouseleave="this.style.transform='scale(1)'">`;
+        h+=`<div style="font-weight:700;font-size:11px;margin-bottom:4px">${bid.split('_')[1].toUpperCase()} ${isCurrent?'<span style="color:var(--accent)">◀ YOU</span>':''}</div>`;
+        // Control bar
+        h+=`<div style="height:4px;background:#1a1a2a;border-radius:2px;margin-bottom:4px;overflow:hidden">
+          <div style="height:100%;width:${ctrl}%;background:var(--accent);border-radius:2px"></div></div>`;
+        h+=`<div style="font-size:9px;color:var(--dim);display:flex;justify-content:space-between">
+          <span>${ctrl}% yours</span>
+          <span>${crewHere?crewHere+'👥 ':''}${npcCount} ppl</span>
+        </div>`;
+        // Cop presence indicator
+        if(blk.cops>30)h+=`<div style="font-size:8px;color:var(--orange);margin-top:2px">🚔 High cop presence</div>`;
+        h+=`</div>`;
+      }
+      h+=`</div></div>`;
+    }
+  }
+  h+=`</div>`;
+
+  // Legend
+  h+=`<div style="margin-top:12px;display:flex;gap:16px;font-size:10px;color:var(--dim);flex-wrap:wrap">
+    <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;vertical-align:middle"></span> Your territory</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;vertical-align:middle"></span> Rival territory</span>
+    <span>👥 Stationed crew</span>
+    <span>🚔 Heavy police</span>
+  </div>`;
+
+  h+=`<button onclick="closeFullMap()" style="margin-top:16px;padding:10px 32px;background:var(--card);border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer;font-size:13px;font-family:'Inter',sans-serif">Close Map [M]</button>`;
+  h+=`</div>`;
+
+  ov.innerHTML=h;
+  document.body.appendChild(ov);
+}
+
+function closeFullMap(){
+  G._mapOpen=false;G.paused=false;
+  const ov=document.getElementById('fullmap-overlay');if(ov)ov.remove();
+}
+
+function mapTravelTo(bid){
+  if(!BLK[bid])return;
+  const did=BLK[bid].did;
+  const req=typeof DIST_REQ!=='undefined'?(DIST_REQ[did]||1):1;
+  if(G.p.tier<req){addLog(`Can't travel there — need ${TIERS[req-1]?.title}.`,'w');return}
+  closeFullMap();
+  // Teleport player
+  const c=blockCenter(bid);
+  PW.x=c.x;PW.y=c.y;
+  G.p.block=bid;G.p.district=did;
+  G.blockActions={};
+  CAM.x=PW.x-(typeof cvs!=='undefined'?cvs.width/2:400);
+  CAM.y=PW.y-(typeof cvs!=='undefined'?cvs.height/2:300);
+  addLog(`Fast-traveled to ${BLK[bid].name}.`,'s');
+  if(RNG.chance(10+G.p.heat*0.2))randomEvent();
+  render();updateHUD();
+}
 
 function tryWorldInteract(){
   let best=null,bestD=IDIST;
