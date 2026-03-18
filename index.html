@@ -363,6 +363,13 @@ class NPC{
     this.reqRep=d.reqRep??0;this.betrayDays=0;this.snitch=false;
     this.worksFor=d.worksFor||'none';this.desc=d.desc||'';this.lastTalk=0;
     this.personality=d.personality||assignPers();
+    // Memory system — NPCs remember past interactions
+    this.memory=d.memory||[];// [{type,day,detail}] — max 10 entries
+    this.mood=d.mood||'neutral';// neutral, friendly, hostile, terrified, grateful, suspicious
+    this.timesThreated=d.timesThreated||0;
+    this.timesBribed=d.timesBribed||0;
+    this.timesTalked=d.timesTalked||0;
+    this.grudge=d.grudge||false;// holds a grudge from past bad interactions
   }
 }
 
@@ -618,13 +625,22 @@ function doAction(id,npcId){
   n.lastTalk=G.time.day;
   let r;
   switch(id){
-    case'talk':r=actTalk(n);break;
-    case'threaten':r=actThreaten(n);break;
-    case'bribe':r=actBribe(n);break;
-    case'collect':r=actCollect(n);break;
-    case'deal':r=actDeal(n);break;
-    case'recruit':r=actRecruit(n);break;
-    case'shakedown':r=actShakedown(n);break;
+    case'talk':r=actTalk(n);n.timesTalked++;npcRemember(n,'talked','Player talked');break;
+    case'threaten':r=actThreaten(n);n.timesThreated++;npcRemember(n,'threatened','Player threatened');
+      // CHAIN REACTION: fear spreads to nearby NPCs
+      if(r.ok)spreadFear(G.p.block,r.chg?.fear?parseInt(r.chg.fear):10,n.id);
+      // Check for undercover cop reveal
+      checkUndercoverReveal(G.p.block);
+      break;
+    case'bribe':r=actBribe(n);n.timesBribed++;npcRemember(n,'bribed','Player bribed');break;
+    case'collect':r=actCollect(n);npcRemember(n,'collected','Player collected debt');
+      if(r.ok)spreadFear(G.p.block,8,n.id);// Collecting also intimidates nearby
+      checkUndercoverReveal(G.p.block);break;
+    case'deal':r=actDeal(n);npcRemember(n,'deal','Made a deal');checkUndercoverReveal(G.p.block);break;
+    case'recruit':r=actRecruit(n);npcRemember(n,'recruited','Joined crew');break;
+    case'shakedown':r=actShakedown(n);npcRemember(n,'shakedown','Player shook down');
+      if(r.ok)spreadFear(G.p.block,15,n.id);// Shakedowns spread major fear
+      checkUndercoverReveal(G.p.block);break;
     default:return;
   }
   showResult(npcId,r);
@@ -634,9 +650,16 @@ function doAction(id,npcId){
 // ── TALK ──────────────────────────────────────────────────
 function actTalk(n){
   G.notoriety.cunning++;
-  if(n.fear>60){n.loyalty=Math.min(100,n.loyalty+1);return{ok:true,text:`${n.name} is too scared to talk freely. They mutter something useless.`,chg:{loyalty:'+1'}}}
-  if(n.loyalty<10&&n.role==='civilian'){return{ok:false,text:`${n.name} ignores you and walks away.`}}
-  const lg=n.role==='contact'?5:3;
+  const mm=getMoodModifier(n);
+  // Memory-based reactions
+  if(n.grudge&&n.mood==='hostile'&&RNG.chance(40)){
+    return{ok:false,text:`${n.name} spits at your feet. "After what you did? Get lost." (Holds a grudge from past threats)`,chg:{}}
+  }
+  if(n.fear>60){n.loyalty=Math.min(100,n.loyalty+1);return{ok:true,text:`${n.name} is too scared to talk freely.${n.timesThreated>2?' They flinch when you approach.':''}`,chg:{loyalty:'+1'}}}
+  if(n.loyalty<10&&n.role==='civilian'&&n.mood!=='friendly'){return{ok:false,text:`${n.name} ignores you and walks away.${n.grudge?' They clearly remember you.':''}`,chg:{}}}
+  let lg=n.role==='contact'?5:3;
+  if(n.mood==='friendly'||n.mood==='grateful')lg+=2;// Friendly NPCs warm up faster
+  if(n.mood==='suspicious')lg=Math.max(1,lg-1);// Suspicious NPCs are guarded
   n.loyalty=Math.min(100,n.loyalty+lg);
   const lines={
     civilian:['I keep to myself. But I see things.','This neighborhood ain\'t safe no more.','Heard cops asking questions on Block B.','Some new crew\'s been tagging walls on Block C.',
@@ -1009,6 +1032,264 @@ function checkMilestones(){
   }
 }
 
+// ─── NPC MEMORY & MOOD ────────────────────────────────────
+function npcRemember(n,type,detail){
+  n.memory.push({type,day:G.time.day,detail});
+  if(n.memory.length>10)n.memory.shift();
+  // Update mood based on memory
+  const threats=n.memory.filter(m=>m.type==='threatened').length;
+  const bribes=n.memory.filter(m=>m.type==='bribed').length;
+  const talks=n.memory.filter(m=>m.type==='talked').length;
+  const shakedowns=n.memory.filter(m=>m.type==='shakedown').length;
+  if(threats>=3)n.mood='terrified';
+  else if(threats>=2&&bribes===0)n.mood='hostile';
+  else if(bribes>=2&&threats===0)n.mood='friendly';
+  else if(talks>=3&&threats===0)n.mood='friendly';
+  else if(shakedowns>=1&&bribes===0)n.mood='suspicious';
+  else if(bribes>=1&&talks>=1)n.mood='grateful';
+  else n.mood='neutral';
+  // Grudge: if threatened 3+ times with no bribes to make up for it
+  if(threats>=3&&bribes<2)n.grudge=true;
+  if(bribes>=3)n.grudge=false;
+}
+
+function getMoodModifier(n){
+  // Returns modifiers based on NPC mood from past interactions
+  switch(n.mood){
+    case'terrified':return{nerveMod:-15,fearBonus:10,loyaltyMod:-5,desc:'Terrified of you'};
+    case'hostile':return{nerveMod:+15,fearBonus:-5,loyaltyMod:-10,desc:'Holds a grudge'};
+    case'friendly':return{nerveMod:-5,fearBonus:0,loyaltyMod:+5,desc:'Friendly toward you'};
+    case'grateful':return{nerveMod:-10,fearBonus:0,loyaltyMod:+8,desc:'Grateful — remembers kindness'};
+    case'suspicious':return{nerveMod:+5,fearBonus:0,loyaltyMod:-3,desc:'Suspicious of your motives'};
+    default:return{nerveMod:0,fearBonus:0,loyaltyMod:0,desc:''};
+  }
+}
+
+// ─── CHAIN REACTIONS ──────────────────────────────────────
+// Threatening one NPC spreads fear to nearby NPCs in the same block
+function spreadFear(sourceBlock,amount,excludeId){
+  const nearby=Object.values(G.npcs).filter(n=>n.block===sourceBlock&&n.alive&&n.id!==excludeId&&n.role==='civilian');
+  let spread=0;
+  for(const n of nearby){
+    const gain=Math.max(1,Math.floor(amount*(0.3+Math.random()*0.3)));// 30-60% of original
+    n.fear=Math.min(100,n.fear+gain);
+    spread++;
+    // Cowardly NPCs react more
+    if(n.personality==='cowardly')n.fear=Math.min(100,n.fear+Math.floor(gain*0.5));
+    // Some NPCs remember witnessing violence
+    if(RNG.chance(40))npcRemember(n,'witnessed_violence','Saw someone get threatened nearby');
+  }
+  if(spread>0)addLog(`Fear spreads... ${spread} nearby people noticed. (+${Math.floor(amount*0.4)} avg fear)`,'w');
+  return spread;
+}
+
+// Loyal NPC warnings: high-loyalty contacts/crew warn about incoming dangers
+function checkLoyalWarnings(){
+  const p=G.p;
+  // Loyal contacts warn about raids
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive)continue;
+    if(n.loyalty>=60&&(n.role==='contact'||n.worksFor==='player')){
+      // Warn about incoming rival attacks
+      for(const r of Object.values(G.rivals)){
+        if(r.phase==='attack'&&r.timer<=2&&RNG.chance(n.loyalty*0.6)){
+          addLog(`${n.name} warns you: "The ${r.name} is about to hit your blocks. Prepare!"`,'w');
+          return;// One warning per day
+        }
+      }
+      // Warn about police crackdown
+      if(p.heat>55&&G.highHeatDays>=2&&RNG.chance(n.loyalty*0.5)){
+        addLog(`${n.name} tips you off: "Cops are planning a sweep. Lay low or pay someone off."`,'w');
+        return;
+      }
+      // Warn about crew betrayal risk
+      for(const c of p.crew){
+        if(c.loyalty<20&&c.betrayDays>=10&&n.id!==c.id&&RNG.chance(30)){
+          addLog(`${n.name} pulls you aside: "Watch ${c.name}. Word is they've been talking to people."`,'w');
+          return;
+        }
+      }
+    }
+  }
+}
+
+// Undercover cops: at high heat, spawn fake civilians who are actually cops
+function spawnUndercoverCop(){
+  const p=G.p;
+  if(p.heat<45)return;
+  if(RNG.chance(Math.min(30,p.heat-35))){
+    const blk=p.block;
+    const uc=new NPC({
+      name:RNG.pick(FIRST)+' '+RNG.pick(LAST),
+      role:'civilian',// Looks civilian!
+      sub:'undercover',// But is actually a cop
+      nerve:65,suspicion:80,hp:5,maxHp:5,
+      block:blk,personality:'cunning',
+      desc:'A quiet newcomer. Keeps to themselves.'
+    });
+    uc.mood='neutral';
+    uc._isUndercover=true;// Hidden flag
+    G.npcs[uc.id]=uc;
+    // Position in world
+    const br=BREG[blk];
+    if(br){for(let i=0;i<30;i++){const tx=br.x+RNG.int(1,br.w-2),ty=br.y+RNG.int(1,br.h-2);if(walkable(tx,ty)){uc.wx=tx*T+T/2;uc.wy=ty*T+T/2;break}}}
+    // No log — player doesn't know. But street smarts can detect later.
+  }
+}
+
+// Undercover reveal: if player threatens or does illegal action near undercover, they reveal
+function checkUndercoverReveal(actionBlock){
+  const ucs=Object.values(G.npcs).filter(n=>n._isUndercover&&n.block===actionBlock&&n.alive);
+  for(const uc of ucs){
+    if(RNG.chance(50)){
+      uc.role='cop';uc.sub='undercover_revealed';uc._isUndercover=false;
+      addHeat(15,'undercover_busted');
+      addLog(`${uc.name} pulls a badge — UNDERCOVER COP! "You're done!" (+15 heat)`,'d');
+      // Street smarts check to escape
+      if(RNG.skill(G.p.skills.streetSmarts,55).ok){
+        addLog('You spotted the move early and slipped away!','s');
+        addHeat(-8,'escape');
+      }else{
+        addLog('They call for backup. This is bad.','d');
+        addHeat(10,'backup');
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// Grudge revenge: NPCs with grudges can take action against the player
+function checkGrudgeActions(){
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive||!n.grudge||n.worksFor==='player')continue;
+    if(n.block!==G.p.block)continue;// Only in same block
+    if(!RNG.chance(3))continue;// Low daily chance
+
+    const actions=[
+      {w:30,fn(){// Report to cops
+        addHeat(RNG.int(5,12),'grudge_report');
+        addLog(`${n.name} reported you to the police out of spite! (+heat)`,'d');
+        n.grudge=false;npcRemember(n,'reported_player','Reported to police');
+      }},
+      {w:20,fn(){// Sabotage a racket
+        const rac=G.p.rackets.find(r=>r.block===n.block&&r.active);
+        if(rac){rac.missed+=2;addLog(`${n.name} sabotaged your racket! Payments disrupted.`,'d');n.grudge=false}
+      }},
+      {w:15,fn(){// Feed info to rivals
+        const r=RNG.pick(Object.values(G.rivals));
+        r.hostility=Math.min(100,r.hostility+8);
+        addLog(`${n.name} leaked info about your operations to the ${r.name}.`,'d');
+        n.grudge=false;
+      }},
+      {w:10,fn(){// Attempt robbery
+        const stolen=Math.min(RNG.int(50,200),G.p.cash.dirty);
+        if(stolen>0){G.p.cash.dirty-=stolen;E.emit('money');
+          addLog(`${n.name} jumped you in an alley! Stole $${stolen}. (-1 HP)`,'d');
+          G.p.hp=Math.max(1,G.p.hp-1);n.grudge=false}
+      }}
+    ];
+    const pool=actions.filter(a=>a.w>0);const tot=pool.reduce((s,a)=>s+a.w,0);
+    let roll=Math.random()*tot;
+    for(const a of pool){roll-=a.w;if(roll<=0){a.fn();break}}
+  }
+}
+
+// Police raid event — triggered at high heat, targets fronts and rackets
+function policeRaid(){
+  const p=G.p;
+  showModal('POLICE RAID','Sirens blare. Multiple police vehicles converge on your territory. This is a coordinated raid!',
+    [{label:'Bribe the precinct captain',sub:`$${2000*p.tier}. Persuasion check for discount.`},
+     {label:'Warn your people — scatter',sub:'Lose 1 day income, but minimize damage. Leadership check.'},
+     {label:'Stand your ground',sub:'Risk everything. Crew defends. Could go either way.'},
+     {label:'Flee to another district',sub:'Safe, but lose territory control and rep.'}]);
+  modalCB=i=>{
+    if(i===0){
+      let cost=2000*p.tier;
+      const ck=RNG.skill(p.skills.persuasion,55);if(ck.ok)cost=Math.floor(cost*.6);
+      if(p.canAfford(cost)){p.spend(cost);addHeat(-20,'bribe_raid');addLog(`Raid called off! Cost: $${cost}${ck.ok?' (negotiated down)':''}.`,'s');G.notoriety.cunning+=3}
+      else{addLog('Can\'t afford the bribe! Raid proceeds!','d');executeRaid()}
+    }else if(i===1){
+      const ck=RNG.skill(p.skills.leadership,50);
+      if(ck.ok){addLog('Your crew scattered in time. Minimal damage.','s');addHeat(-5,'scatter');
+        // Lose one day of racket income
+        p.rackets.forEach(r=>{if(r.active)r.missed=Math.max(r.missed,1)});G.notoriety.shadow+=2}
+      else{addLog('Too slow! Cops caught some of your operation.','w');executeRaid(true)}// Partial raid
+    }else if(i===2){
+      const crewStr=p.crew.reduce((s,c)=>s+c.loyalty*.1+c.hp,0);
+      if(crewStr>15&&RNG.chance(40+crewStr)){
+        addLog('Your crew held the line! Cops retreated. Legendary.','r');addRep(25,'defended_raid');addHeat(15,'shootout');G.notoriety.violent+=5}
+      else{addLog('Overwhelmed. The raid is devastating.','d');executeRaid();p.crew.forEach(c=>{c.loyalty-=10;if(RNG.chance(20))c.hp=Math.max(1,c.hp-1)})}
+    }else{
+      addLog('You fled. Your empire takes a hit.','w');addRep(-15,'fled_raid');addHeat(-10,'fled');
+      const blks=Object.values(BLK).filter(b=>b.ctrl.player>20);
+      blks.forEach(b=>{b.ctrl.player=Math.max(0,b.ctrl.player-10);recalc(b)});
+    }
+    render();updateHUD();
+  };
+}
+
+function executeRaid(partial=false){
+  const p=G.p;const severity=partial?0.5:1;
+  // Seize dirty cash
+  const seized=Math.floor(p.cash.dirty*0.3*severity);p.cash.dirty-=seized;
+  // Raid fronts
+  for(const f of p.fronts){if(!f.raided&&RNG.chance(40*severity)){f.raided=true;f.cooldown=5;addLog(`Your ${f.type} was raided and shut down!`,'d')}}
+  // Disrupt rackets
+  p.rackets.forEach(r=>{if(r.active&&RNG.chance(30*severity)){r.missed+=2;addLog(`Racket disrupted by police action.`,'w')}});
+  // Territory loss
+  Object.values(BLK).filter(b=>b.ctrl.player>0).forEach(b=>{const loss=Math.floor(5*severity);b.ctrl.player=Math.max(0,b.ctrl.player-loss);recalc(b)});
+  addHeat(Math.floor(10*severity),'raid_aftermath');
+  addLog(`Raid damage: $${seized} seized${partial?' (partial raid)':''}.`,'d');
+  E.emit('money');
+}
+
+// Surprise opportunity: a one-time high-value event
+function surpriseWindfall(){
+  const p=G.p;
+  const types=[
+    {w:20,fn(){
+      const amt=RNG.int(300,1500)*p.tier;
+      showModal('Fallen Money Truck','A cash transport truck crashed on the highway. Money everywhere. Locals are grabbing what they can.',
+        [{label:`Grab as much as you can ($${amt})`,sub:`+${amt} dirty cash. +10 heat. Quick.`},
+         {label:'Send your crew',sub:p.crew.length>0?'Less risk, smaller cut.':'No crew available.'},
+         {label:'Leave it — too public',sub:'Zero risk.'}]);
+      modalCB=i=>{
+        if(i===0){p.addDirty(amt);addHeat(10,'truck_grab');addLog(`Grabbed $${amt} from the crash! Quick and dirty.`,'s');G.notoriety.violent++}
+        else if(i===1&&p.crew.length>0){const cut=Math.floor(amt*.6);p.addDirty(cut);addHeat(4,'truck_crew');addLog(`Crew grabbed $${cut} for you. Clean-ish.`,'s')}
+        else addLog('You walk away. Probably smart.','i');
+        render();updateHUD();
+      };
+    }},
+    {w:15,fn(){
+      const npc=RNG.pick(Object.values(G.npcs).filter(n=>n.alive&&n.role==='civilian'&&n.loyalty>40));
+      if(!npc)return;
+      addLog(`${npc.name} approaches you nervously: "I owe you for what you did. There's a safe in the old building on Block D. Code is 4-7-2-1."`,'s');
+      const loot=RNG.int(500,2000);p.addDirty(loot);addRep(5,'grateful_npc');
+      npcRemember(npc,'gave_gift','Shared safe code as thank-you');
+      addLog(`You found $${loot} in the safe! ${npc.name}'s loyalty paid off.`,'r');
+      updateHUD();
+    }},
+    {w:10,fn(){
+      showModal('Rival Defector',`A member of the ${RNG.pick(Object.values(G.rivals)).name} approaches you: "I want out. I'll bring intel, contacts, and $${1000*p.tier} if you take me in."`,
+        [{label:'Welcome them',sub:'+Cash, +intel, but the rival will come looking for them.'},
+         {label:'Turn them away',sub:'Safe. No consequences.'},
+         {label:'Sell them back to their boss',sub:`$${500*p.tier} from the rival. +Hostility with them.`}]);
+      modalCB=i=>{
+        if(i===0){p.addDirty(1000*p.tier);addRep(10,'defector');Object.values(G.rivals).forEach(r=>r.hostility=Math.min(100,r.hostility+5));
+          addLog('The defector brings cash and secrets. Their old crew won\'t be happy.','s');G.notoriety.cunning+=2}
+        else if(i===2){p.addDirty(500*p.tier);const r=RNG.pick(Object.values(G.rivals));r.hostility=Math.max(0,r.hostility-10);
+          addLog(`Sold the defector back. ${r.name} appreciates the "loyalty." Cold.`,'w');G.notoriety.cunning+=3}
+        else addLog('You turn them away. They disappear into the night.','i');
+        render();updateHUD();
+      };
+    }}
+  ];
+  const pool=types.filter(t=>t.w>0);const tot=pool.reduce((s,t)=>s+t.w,0);
+  let roll=Math.random()*tot;
+  for(const t of pool){roll-=t.w;if(roll<=0){t.fn();return}}
+}
+
 // ─── RANDOM EVENTS ────────────────────────────────────────
 function randomEvent(){
   const p=G.p;
@@ -1038,6 +1319,33 @@ function randomEvent(){
     {w:p.rep>300?8:0,fn:triggerChainEvent},
     {w:12,fn:triggerChainEvent},
     {w:p.crew.length>0?10:0,fn:triggerChainEvent},
+    // New emergent events
+    {w:p.heat>55?18:0,fn:policeRaid},
+    {w:10,fn:surpriseWindfall},
+    {w:p.rep>100?8:0,fn(){// NPC gossip chain — reputation precedes you
+      const civs=Object.values(G.npcs).filter(n=>n.block===p.block&&n.role==='civilian'&&n.alive);
+      if(civs.length<2)return;
+      const fearful=civs.filter(n=>n.fear>30).length;const friendly=civs.filter(n=>n.loyalty>40).length;
+      if(fearful>friendly){addLog('People cross the street when they see you coming. Your reputation spreads fear.','w');
+        civs.forEach(n=>{n.fear=Math.min(100,n.fear+3)})}
+      else if(friendly>0){addLog('Locals nod respectfully as you pass. They know you look after this block.','s');
+        civs.forEach(n=>{n.loyalty=Math.min(100,n.loyalty+2)})}
+    }},
+    {w:p.crew.length>1?8:0,fn(){// Crew bonding — random crew loyalty event
+      const c1=RNG.pick(p.crew),c2=RNG.pick(p.crew.filter(c=>c.id!==c1?.id));
+      if(!c1||!c2)return;
+      if(RNG.chance(60)){c1.loyalty=Math.min(100,c1.loyalty+3);c2.loyalty=Math.min(100,c2.loyalty+3);
+        addLog(`${c1.name} and ${c2.name} bonded over a job. Both loyalty +3.`,'s')}
+      else{c1.loyalty=Math.max(0,c1.loyalty-2);c2.loyalty=Math.max(0,c2.loyalty-2);
+        addLog(`${c1.name} and ${c2.name} got into an argument. Tension in the crew.`,'w')}
+    }},
+    {w:p.rackets.filter(r=>r.active).length>0?10:0,fn(){// Racket NPC remembers past treatment
+      const rac=RNG.pick(p.rackets.filter(r=>r.active));if(!rac)return;
+      const n=G.npcs[rac.npcId];if(!n)return;
+      if(n.mood==='terrified'){addLog(`${n.name} pays extra this week out of sheer terror. +$${Math.floor(rac.pay*.3)}`,'s');p.addDirty(Math.floor(rac.pay*.3))}
+      else if(n.mood==='hostile'&&n.grudge){addLog(`${n.name} "accidentally" gave you counterfeit bills. The payment is worthless.`,'d')}
+      else if(n.mood==='friendly'){addLog(`${n.name} tips you off about a business opportunity nearby.`,'s');G.notoriety.business++}
+    }},
   ];
   const pool=events.filter(e=>e.w>0);
   const total=pool.reduce((s,e)=>s+e.w,0);
@@ -1106,9 +1414,12 @@ function dayTick(){
     if(cc>0){b.ctrl.player=Math.min(100,b.ctrl.player+cc*2);for(const rid of['kostarov','dragos','vega'])if(b.ctrl[rid]>0)b.ctrl[rid]=Math.max(0,b.ctrl[rid]-cc*2);recalc(b)}
     else if(b.ctrl.player>0){b.ctrl.player=Math.max(0,b.ctrl.player-1);recalc(b)}
   }
-  // Wanted system + milestones
+  // Emergent systems
   updateWanted();
   checkMilestones();
+  checkLoyalWarnings();// Loyal NPCs warn about dangers
+  spawnUndercoverCop();// High heat spawns undercover cops
+  checkGrudgeActions();// NPCs with grudges take revenge
   // Rival AI
   for(const r of Object.values(G.rivals)){
     if(r.phase==='passive'){if(r.hostility>30||G.p.rep>r.str*50){r.timer--;if(r.timer<=0){r.phase='probe';r.timer=14;addLog(`The ${r.name} is scouting your territory...`,'w')}}}
@@ -1276,7 +1587,7 @@ function renderExplore(c){
     h+=`<div class="npc" onclick="showNPC('${n.id}')">
       <div class="npc-h"><span class="npc-icon">${ic}</span><span class="npc-name">${n.name}</span>${pTag}${wt}${crewTag}${specTag}</div>
       <div class="npc-role">${n.role}${n.sub?' — '+n.sub:''}${n.spec&&n.role!=='crew'?' ('+n.spec+')':''}</div>
-      <div class="npc-stats"><span title="Loyalty">❤️ ${n.loyalty}</span><span title="Fear">😨 ${n.fear}</span><span title="Nerve">💪 ${n.nerve}</span></div>
+      <div class="npc-stats"><span title="Loyalty">❤️ ${n.loyalty}</span><span title="Fear">😨 ${n.fear}</span><span title="Nerve">💪 ${n.nerve}</span>${n.mood&&n.mood!=='neutral'?`<span title="${getMoodModifier(n).desc}" style="color:${n.mood==='friendly'||n.mood==='grateful'?'var(--green)':n.mood==='hostile'?'var(--red)':n.mood==='terrified'?'var(--orange)':'var(--dim)'}">${{friendly:'😊',hostile:'😠',terrified:'😰',grateful:'🙏',suspicious:'🤨'}[n.mood]||''} ${n.mood}</span>`:''}</div>
       <div class="npc-desc">${n.desc}</div></div>`;
   }
   h+=`</div><div id="apanel" class="sec"></div>`;
@@ -1290,9 +1601,13 @@ function showNPC(id){
   const panel=document.getElementById('apanel');if(!panel)return;
   const risk=calcRisk('general',n);
   const pDesc=n.personality?` | ${n.personality}: ${PERS_DESC[n.personality]||''}`:'';
+  const mm=getMoodModifier(n);
+  const moodLine=n.mood&&n.mood!=='neutral'?` | Mood: ${n.mood}${mm.desc?' — '+mm.desc:''}`:'';
+  const memLine=n.memory.length>0?` | Remembers ${n.memory.length} interaction${n.memory.length>1?'s':''}`:'';
+  const grudgeLine=n.grudge?' | ⚠️ HOLDS A GRUDGE':'';
   let h=`<h3>Interact: ${n.name}</h3>
     <div class="act-stats"><span>Loyalty: ${n.loyalty}</span><span>Fear: ${n.fear}</span><span>Trust: ${n.trust}</span><span>Nerve: ${n.nerve}</span><span>HP: ${n.hp}/${n.maxHp}</span>${n.personality?`<span class="ptag ptag-${n.personality}">${n.personality}</span>`:''}</div>
-    <div class="risk-tip"><span class="rdot rdot-${risk.level}"></span>${risk.tip}${pDesc}</div>
+    <div class="risk-tip"><span class="rdot rdot-${risk.level}"></span>${risk.tip}${pDesc}${moodLine}${memLine}${grudgeLine}</div>
     <div class="acts">`;
   for(const a of acts){
     const rdot=a.id==='talk'?'low':risk.level;
