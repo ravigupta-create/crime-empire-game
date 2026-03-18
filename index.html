@@ -627,22 +627,22 @@ function doAction(id,npcId){
   switch(id){
     case'talk':r=actTalk(n);n.timesTalked++;npcRemember(n,'talked','Player talked');break;
     case'threaten':r=actThreaten(n);n.timesThreated++;npcRemember(n,'threatened','Player threatened');
-      // CHAIN REACTION: fear spreads to nearby NPCs
       if(r.ok)spreadFear(G.p.block,r.chg?.fear?parseInt(r.chg.fear):10,n.id);
-      // Check for undercover cop reveal
       checkUndercoverReveal(G.p.block);
       break;
     case'bribe':r=actBribe(n);n.timesBribed++;npcRemember(n,'bribed','Player bribed');break;
     case'collect':r=actCollect(n);npcRemember(n,'collected','Player collected debt');
-      if(r.ok)spreadFear(G.p.block,8,n.id);// Collecting also intimidates nearby
+      if(r.ok)spreadFear(G.p.block,8,n.id);
       checkUndercoverReveal(G.p.block);break;
     case'deal':r=actDeal(n);npcRemember(n,'deal','Made a deal');checkUndercoverReveal(G.p.block);break;
     case'recruit':r=actRecruit(n);npcRemember(n,'recruited','Joined crew');break;
     case'shakedown':r=actShakedown(n);npcRemember(n,'shakedown','Player shook down');
-      if(r.ok)spreadFear(G.p.block,15,n.id);// Shakedowns spread major fear
+      if(r.ok)spreadFear(G.p.block,15,n.id);
       checkUndercoverReveal(G.p.block);break;
     default:return;
   }
+  // ── CASCADE: ripple this action across all systems ──
+  cascade(id,G.p.block,{success:r.ok,failure:!r.ok,npc:n});
   showResult(npcId,r);
   updateHUD();
 }
@@ -1020,6 +1020,7 @@ function doArrest(){
   const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
   addHeat(15,'arrested');addRep(-15,'arrested');
   p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
+  cascade('arrest',p.block,{success:false,failure:true});// Full arrest cascade
   const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
   addLog(`Arrested! Cash seized: $${lost}. Bail: $${bail}. Lost ${days} days.`,'d');
 }
@@ -1030,6 +1031,203 @@ function checkMilestones(){
     if(G.milestonesDone[m.id])continue;
     if(m.check()){G.milestonesDone[m.id]=G.time.day;m.fx();addLog(`🏆 MILESTONE: ${m.name} — ${m.reward}!`,'r')}
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CASCADE ENGINE — Every action ripples across all systems
+// ═══════════════════════════════════════════════════════════
+// Central ripple processor: takes an action result and fans out consequences
+// across NPC, Heat, Economy, Territory, and Rivals. No action touches one system only.
+
+function cascade(action,block,extraData={}){
+  const p=G.p,blk=BLK[block];if(!blk)return;
+  const did=blk.did;const dist=DIST[did];if(!dist)return;
+  const log=[];
+
+  // ── 1. FEAR → COMPLIANCE → INCOME ──────────────────────
+  // When block fear is high enough, businesses auto-comply → income rises
+  const civs=Object.values(G.npcs).filter(n=>n.block===block&&n.role==='civilian'&&n.alive);
+  const avgFear=civs.length?civs.reduce((s,n)=>s+n.fear,0)/civs.length:0;
+  if(avgFear>50&&!G._lastComplianceBlock?.[block]){
+    // Businesses fall in line — passive territory boost + income opportunity
+    blk.ctrl.player=Math.min(100,blk.ctrl.player+1);recalc(blk);
+    if(blk.ctrl.player>=30&&blk.ctrl.player<35)log.push('Block businesses are falling in line. Territory creeping up.');
+    G._lastComplianceBlock=G._lastComplianceBlock||{};G._lastComplianceBlock[block]=G.time.day;
+  }
+  // Reset compliance tracker after 3 days
+  if(G._lastComplianceBlock?.[block]&&G.time.day-G._lastComplianceBlock[block]>3)delete G._lastComplianceBlock[block];
+
+  // ── 2. PATTERN DETECTION → INVESTIGATION ───────────────
+  // Multiple actions in a block create a "pattern" cops notice
+  const actCount=G.blockActions[block]||0;
+  if(actCount>=3&&p.heat<40){
+    addHeat(2,'pattern_detected');
+    log.push('Cops noticed a pattern of activity on this block. (+2 heat)');
+  }
+  if(actCount>=5){
+    addHeat(5,'heavy_pattern');
+    blk.cops=Math.min(100,blk.cops+5);// Permanent cop presence increase
+    log.push('Heavy criminal activity detected! Cop patrols permanently increased on this block.');
+  }
+
+  // ── 3. HEAT SPILLOVER → NEIGHBORING DISTRICTS ──────────
+  // High heat in one district bleeds into adjacent districts
+  if(p.heat>45){
+    const allDists=Object.keys(DIST);
+    const idx=allDists.indexOf(did);
+    const neighbors=allDists.filter((_,i)=>Math.abs(i-idx)===1);
+    for(const nDid of neighbors){
+      const nBlocks=DIST[nDid]?.blocks||[];
+      for(const nb of nBlocks){
+        const nblk=BLK[nb];if(!nblk)continue;
+        const spillover=Math.floor((p.heat-40)*0.1);
+        nblk.cops=Math.min(100,nblk.cops+spillover);
+      }
+    }
+    if(p.heat>60&&RNG.chance(15))log.push(`Heat is spilling over — neighboring districts are increasing patrols.`);
+  }
+
+  // ── 4. TERRITORY CONTROL → RIVAL REACTION ──────────────
+  // When player gains territory fast, rivals react proportionally
+  if(blk.ctrl.player>50){
+    for(const r of Object.values(G.rivals)){
+      // Rival whose territory borders this block gets hostile
+      const rBlocks=Object.values(BLK).filter(b=>b.ctrl[r.id]>30);
+      const sameDistrict=rBlocks.some(b=>b.did===did);
+      if(sameDistrict&&blk.ctrl.player>60){
+        r.hostility=Math.min(100,r.hostility+1);
+        if(r.phase==='passive'&&r.hostility>50)r.timer=Math.max(1,r.timer-1);// Accelerate threat
+      }
+    }
+  }
+
+  // ── 5. ECONOMY → HEAT → INVESTIGATION ──────────────────
+  // Rapid income growth draws attention
+  const weeklyInc=p.rackets.filter(r=>r.active).reduce((s,r)=>s+r.pay,0)+p.fronts.filter(f=>!f.raided).reduce((s,f)=>s+f.legit,0);
+  if(weeklyInc>2000&&p.heat<30){
+    // IRS / financial investigation angle
+    if(RNG.chance(5)){addHeat(3,'financial_pattern');log.push('Your income pattern is drawing financial attention. +3 heat.')}
+  }
+
+  // ── 6. CREW MORALE RIPPLE ──────────────────────────────
+  // Actions affect crew morale based on what happened
+  if(action==='threaten'||action==='shakedown'||action==='collect'){
+    // Violent actions: aggressive crew like it, loyal/cowardly crew don't
+    for(const c of p.crew){
+      if(c.personality==='aggressive')c.loyalty=Math.min(100,c.loyalty+1);
+      if(c.personality==='cowardly'&&RNG.chance(20))c.loyalty=Math.max(0,c.loyalty-1);
+    }
+  }
+  if(action==='talk'||action==='bribe'){
+    // Diplomatic actions: cunning crew like it, aggressive crew find it soft
+    for(const c of p.crew){
+      if(c.personality==='cunning')c.loyalty=Math.min(100,c.loyalty+1);
+      if(c.personality==='aggressive'&&RNG.chance(15))c.loyalty=Math.max(0,c.loyalty-1);
+    }
+  }
+
+  // ── 7. NPC NETWORK EFFECT → REPUTATION SPREAD ─────────
+  // NPCs talk to each other — your reputation propagates through the block
+  if(extraData.success){
+    // Success: nearby NPCs hear about it → respect or fear spreads
+    const nearCivs=Object.values(G.npcs).filter(n=>n.block===block&&n.alive&&n.role!=='cop');
+    for(const nc of nearCivs){
+      if(action==='threaten'||action==='shakedown'){
+        // Violent success → fear network
+        if(RNG.chance(20))nc.fear=Math.min(100,nc.fear+2);
+        // But also some gain grudges
+        if(nc.personality==='loyal'&&RNG.chance(10)){nc.grudge=true;nc.mood='hostile'}
+      }
+      if(action==='bribe'||action==='talk'){
+        // Diplomatic success → loyalty network
+        if(RNG.chance(15))nc.loyalty=Math.min(100,nc.loyalty+1);
+      }
+    }
+  }else if(extraData.failure){
+    // Failure: you look weak → rivals emboldened, NPCs lose fear
+    const nearCivs=Object.values(G.npcs).filter(n=>n.block===block&&n.alive);
+    for(const nc of nearCivs){
+      if(RNG.chance(10)){nc.fear=Math.max(0,nc.fear-2);nc.nerve=Math.min(100,nc.nerve+1)}
+    }
+    // Rivals notice weakness
+    for(const r of Object.values(G.rivals)){
+      if(r.hostility>20&&RNG.chance(8))r.hostility=Math.min(100,r.hostility+2);
+    }
+  }
+
+  // ── 8. BETRAYAL → TERRITORY + HEAT + ECONOMY ──────────
+  // (Handled inline in doAction for betrayal — this covers the cascade from it)
+  if(action==='betrayal'){
+    // Traitor leaks block info → territory loss
+    const blocks=Object.values(BLK).filter(b=>b.ctrl.player>20);
+    if(blocks.length>0){
+      const weak=blocks.sort((a,b)=>a.crew.length-b.crew.length)[0];
+      weak.ctrl.player=Math.max(0,weak.ctrl.player-10);recalc(weak);
+      log.push(`Traitor leaked intel — ${weak.name} territory weakened.`);
+    }
+    // Rackets destabilized
+    p.rackets.filter(r=>r.active).forEach(r=>{
+      const n=G.npcs[r.npcId];if(n)n.fear=Math.max(0,n.fear-8);
+    });
+    log.push('Your rackets are shaken. NPC fear dropping across the board.');
+    // Rivals emboldened
+    Object.values(G.rivals).forEach(r=>{r.hostility=Math.min(100,r.hostility+5);if(r.phase==='passive')r.timer=Math.max(1,r.timer-5)});
+    log.push('Rivals sense weakness. Hostility rising.');
+  }
+
+  // ── 9. ARREST → FULL CASCADE ───────────────────────────
+  if(action==='arrest'){
+    // Territory bleeds while in jail
+    Object.values(BLK).filter(b=>b.ctrl.player>0).forEach(b=>{
+      b.ctrl.player=Math.max(0,b.ctrl.player-3);recalc(b);
+    });
+    // All racket NPCs test fear — some stop paying
+    p.rackets.filter(r=>r.active).forEach(r=>{
+      const n=G.npcs[r.npcId];if(n){n.fear=Math.max(0,n.fear-15);n.nerve=Math.min(100,n.nerve+5);
+        if(n.fear<20&&RNG.chance(40)){r.missed+=2;log.push(`${n.name} stopped paying while you were locked up.`)}}
+    });
+    // Rivals advance
+    Object.values(G.rivals).forEach(r=>{if(r.phase==='passive')r.timer=Math.max(1,r.timer-7)});
+    // Fronts at risk
+    p.fronts.forEach(f=>{if(!f.raided&&RNG.chance(25)){f.raided=true;f.cooldown=5;log.push(`${f.type} raided while you were inside.`)}});
+    // Crew panics
+    p.crew.forEach(c=>{c.loyalty=Math.max(0,c.loyalty-5);if(c.loyalty<15)c.betrayDays+=7});
+    log.push('While you were locked up, your empire took hits across the board.');
+  }
+
+  // ── 10. SHAKEDOWN SUCCESS → RIPPLE ─────────────────────
+  if(action==='shakedown'&&extraData.success){
+    // Other businesses in the block become easier targets
+    const otherCivs=civs.filter(n=>!p.rackets.some(r=>r.npcId===n.id));
+    for(const oc of otherCivs){
+      oc.nerve=Math.max(0,oc.nerve-3);// They know what happened to their neighbor
+      if(RNG.chance(20))oc.fear=Math.min(100,oc.fear+5);
+    }
+    if(otherCivs.length>0)log.push('Word of your shakedown spreads. Nearby businesses are nervous.');
+    // Territory solidifies
+    blk.ctrl.player=Math.min(100,blk.ctrl.player+2);recalc(blk);
+  }
+
+  // ── 11. DEAL SUCCESS → SUPPLIER TRUST → BETTER FUTURE DEALS
+  if(action==='deal'&&extraData.success){
+    // Supplier trust opens new economic pathways
+    const suppliers=Object.values(G.npcs).filter(n=>n.sub==='supplier'&&n.alive);
+    for(const s of suppliers){if(s.trust>60&&RNG.chance(15)){
+      addLog(`${s.name} offers a bulk discount next time. Trust is paying off.`,'s');
+      s.trust=Math.min(100,s.trust+2);
+    }}
+  }
+
+  // ── 12. RECRUIT → TERRITORY + RIVAL REACTION ──────────
+  if(action==='recruit'){
+    // Recruiting visibly grows your operation
+    blk.ctrl.player=Math.min(100,blk.ctrl.player+3);recalc(blk);
+    Object.values(G.rivals).forEach(r=>{if(RNG.chance(20))r.hostility=Math.min(100,r.hostility+2)});
+    if(p.crew.length>=3)log.push('Your growing crew is turning heads — rivals are watching.');
+  }
+
+  // Log cascade effects
+  for(const l of log)addLog(l,'w');
 }
 
 // ─── NPC MEMORY & MOOD ────────────────────────────────────
@@ -1405,6 +1603,7 @@ function dayTick(){
         addHeat(25,'betrayal');addRep(-15,'betrayal');
         G.p.crew.forEach(x=>x.loyalty=Math.max(0,x.loyalty-5));
         G.betrayalSurvived=true;
+        cascade('betrayal',G.p.block,{success:false,failure:true});
       }
     }else c.betrayDays=0;
   }
@@ -1417,9 +1616,13 @@ function dayTick(){
   // Emergent systems
   updateWanted();
   checkMilestones();
-  checkLoyalWarnings();// Loyal NPCs warn about dangers
-  spawnUndercoverCop();// High heat spawns undercover cops
-  checkGrudgeActions();// NPCs with grudges take revenge
+  checkLoyalWarnings();
+  spawnUndercoverCop();
+  checkGrudgeActions();
+  // Daily cascade check: heat spillover + economic pattern detection
+  cascade('daily_tick',G.p.block,{});
+  // Cop presence natural decay (prevents permanent escalation)
+  for(const b of Object.values(BLK)){if(b.cops>b.pop*.4)b.cops=Math.max(b.pop*.3,b.cops-1)}
   // Rival AI
   for(const r of Object.values(G.rivals)){
     if(r.phase==='passive'){if(r.hostility>30||G.p.rep>r.str*50){r.timer--;if(r.timer<=0){r.phase='probe';r.timer=14;addLog(`The ${r.name} is scouting your territory...`,'w')}}}
@@ -1467,6 +1670,39 @@ function weekTick(){
   }
   // Front raids
   if(p.heat>50)for(const f of p.fronts){if(!f.raided&&RNG.chance((p.heat-50)*2)){f.raided=true;f.cooldown=5;addLog(`Your ${f.type} was RAIDED!`,'d');addHeat(5,'raid')}}
+  // ── WEEKLY CASCADE: Income pattern → heat, territory stability → rival reaction ──
+  if(inc>3000&&p.heat<25){
+    addHeat(Math.floor(inc/2000),'income_pattern');
+    addLog('Your growing income is drawing attention. Financial investigators are sniffing around.','w');
+  }
+  // High income + high territory = rival escalation
+  const playerBlocks=Object.values(BLK).filter(b=>b.ctrl.player>=50).length;
+  if(playerBlocks>=3&&inc>1500){
+    Object.values(G.rivals).forEach(r=>{
+      if(r.phase==='passive'){r.hostility=Math.min(100,r.hostility+Math.floor(playerBlocks/2));
+        if(r.hostility>40)r.timer=Math.max(1,r.timer-2)}// Faster escalation
+    });
+    if(playerBlocks>=5)addLog('Your expanding empire is making rivals nervous. Expect pushback.','w');
+  }
+  // Unpaid crew during arrest cascades
+  const unpaidCrew=p.crew.filter(c=>c.loyalty<15);
+  if(unpaidCrew.length>0){
+    for(const c of unpaidCrew){
+      // Low loyalty crew might leak to rivals
+      if(RNG.chance(c.loyalty<10?20:8)){
+        const r=RNG.pick(Object.values(G.rivals));
+        r.hostility=Math.min(100,r.hostility+3);
+        addLog(`${c.name} has been talking to the ${r.name}. Loyalty crisis.`,'d');
+      }
+    }
+  }
+  // Successful racket income stabilizes territory
+  const activeRackets=p.rackets.filter(r=>r.active&&r.missed===0);
+  for(const r of activeRackets){
+    const blk=BLK[r.block];if(blk&&blk.ctrl.player>0){
+      blk.ctrl.player=Math.min(100,blk.ctrl.player+1);recalc(blk);
+    }
+  }
   addLog(`Weekly: Income $${inc} | Expenses $${exp} | Net $${inc-exp}`,'i');
 }
 
