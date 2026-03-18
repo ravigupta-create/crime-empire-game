@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crime Empire</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="game-container">
+
+    <!-- ─── Top Bar (HUD) ────────────────────────────── -->
+    <div class="top-bar">
+      <div class="hud-group">
+        <span class="hud-label">Cash</span>
+        <span class="hud-value cash" id="cash">$0</span>
+      </div>
+      <div class="hud-group">
+        <span class="hud-label">Heat</span>
+        <span class="hud-value heat" id="heat">0</span>
+        <div class="heat-bar-container">
+          <div class="heat-bar-fill" id="heat-bar" style="width: 0%"></div>
+        </div>
+        <span class="heat-tier" id="heat-label">Cold</span>
+      </div>
+      <div class="hud-group">
+        <span class="hud-label">Rep</span>
+        <span class="hud-value rep" id="rep">0</span>
+        <span class="heat-tier" id="rep-title">Street Rat</span>
+      </div>
+      <div class="hud-group">
+        <span class="hud-label">HP</span>
+        <span class="hud-value hp" id="hp">5/5</span>
+      </div>
+      <div class="hud-group">
+        <span class="hud-label">Crew</span>
+        <span class="hud-value" id="crew">0/1</span>
+      </div>
+
+      <div class="hud-spacer"></div>
+
+      <div class="hud-group">
+        <span class="hud-label" id="location">The Row - Block A</span>
+      </div>
+      <div class="time-display">
+        <div class="time-val" id="time">10:00 PM</div>
+        <div class="day-val" id="day">Day 1 (Monday)</div>
+      </div>
+      <span class="period night" id="period">night</span>
+
+      <div class="controls">
+        <button class="ctrl-btn" id="pause-btn" title="Pause/Resume">⏸</button>
+        <button class="speed-btn active" id="speed-1x">1x</button>
+        <button class="speed-btn" id="speed-3x">3x</button>
+        <button class="speed-btn" id="speed-5x">5x</button>
+        <button class="ctrl-btn" id="save-btn" title="Save">💾</button>
+      </div>
+    </div>
+
+    <!-- ─── Main Content Area ────────────────────────── -->
+    <div class="main-area">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="explore">Explore</button>
+        <button class="tab-btn" data-tab="jobs">Jobs</button>
+        <button class="tab-btn" data-tab="crew">Empire</button>
+        <button class="tab-btn" data-tab="map">Map</button>
+        <button class="tab-btn" data-tab="skills">Skills</button>
+      </div>
+      <div id="main-content"></div>
+    </div>
+
+    <!-- ─── Log Sidebar ──────────────────────────────── -->
+    <div class="log-sidebar">
+      <div class="log-header">Activity Log</div>
+      <div id="game-log"></div>
+    </div>
+
+    <!-- ─── Bottom Bar ───────────────────────────────── -->
+    <div class="bottom-bar">
+      <span>Crime Empire v0.1</span>
+      <span>|</span>
+      <span>Pure HTML/CSS/JS — Zero Dependencies — 100% Free</span>
+    </div>
+  </div>
+
+  <!-- ─── Scripts (load order matters) ─────────────── -->
+  <script src="js/events.js"></script>
+  <script src="js/systems/rng.js"></script>
+  <script src="js/entities/player.js"></script>
+  <script src="js/entities/npc-data.js"></script>
+  <script src="js/entities/districts.js"></script>
+  <script src="js/systems/heat.js"></script>
+  <script src="js/systems/reputation.js"></script>
+  <script src="js/systems/economy.js"></script>
+  <script src="js/systems/npc.js"></script>
+  <script src="js/systems/territory.js"></script>
+  <script src="js/systems/time.js"></script>
+  <script src="js/systems/jobs.js"></script>
+  <script src="js/systems/interaction.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/ui/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
