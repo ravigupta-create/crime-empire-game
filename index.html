@@ -180,6 +180,17 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
 /* Locked districts */
 .nbtn.locked{opacity:.4;cursor:not-allowed;border-style:dashed}
 
+/* Forecast & Strategy */
+.forecast{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0;font-size:11px;line-height:1.5}
+.fc-row{margin-bottom:3px}.fc-label{font-weight:700;margin-right:4px}
+.strat-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.strat-card:hover{border-color:var(--accent);background:var(--hover)}
+.strat-label{font-weight:700;font-size:13px;color:var(--accent)}.strat-sub{font-size:11px;color:var(--dim);margin:4px 0}
+.empire-health{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px}
+.eh-row{display:flex;align-items:start;gap:6px;margin-bottom:4px;font-size:12px}
+.eh-icon{font-size:14px;min-width:18px}
+.eh-threat{color:var(--red)}.eh-strength{color:var(--green)}.eh-advice{color:var(--accent)}
+
 /* Home Screen */
 .home{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column}
 .home.hidden{display:none}
@@ -574,6 +585,231 @@ function addRep(n,src){
     addLog(`Rep dropped. Now a ${nw.title} (Tier ${nw.t}).`,'d');
   }
   updateHUD();
+}
+
+// ═══════════════════════════════════════════════════════════
+// STRATEGY LAYER — Tradeoff analysis before every action
+// ═══════════════════════════════════════════════════════════
+
+// Forecasts what will happen if you take an action — shown on hover/before clicking
+function forecast(action,npc){
+  const p=G.p,blk=BLK[p.block],risk=calcRisk(action,npc);
+  const f={short:[],long:[],risk:[],reward:[]};// Short-term, long-term, risks, rewards
+  const avgFear=Object.values(G.npcs).filter(n=>n.block===p.block&&n.role==='civilian'&&n.alive).reduce((s,n)=>s+n.fear,0)/(Object.values(G.npcs).filter(n=>n.block===p.block&&n.role==='civilian'&&n.alive).length||1);
+  const actCount=G.blockActions[p.block]||0;
+  const crewLowLoy=p.crew.filter(c=>c.loyalty<25).length;
+
+  switch(action){
+    case'talk':
+      f.reward.push('Build loyalty (+3-7)');
+      if(npc.trust>40&&npc.role==='contact')f.reward.push('May get intel');
+      if(npc.personality==='generous')f.reward.push('May gift cash');
+      if(npc.grudge)f.risk.push('Grudge — may refuse');
+      f.short.push('Safe, no heat');
+      f.long.push('High loyalty → warnings about danger, better prices');
+      break;
+    case'threaten':
+      f.reward.push(`Fear +${npc.personality==='cowardly'?30:20}`);
+      f.reward.push('Rep +5, silences witnesses');
+      f.risk.push(`Heat +${Math.round((3+(actCount>0?4:2))*risk.heatMod)}`);
+      f.risk.push(`${Math.round(100-RNG.skill(p.skills.intimidation,npc.nerve).chance)}% fail chance`);
+      if(npc.personality==='aggressive')f.risk.push('May fight back (-1 HP)');
+      if(actCount>=2)f.risk.push(`Pattern alert! ${actCount} prior actions here`);
+      f.short.push('Fear spreads to '+Math.min(3,Math.floor(blk.pop/25))+' nearby NPCs');
+      f.long.push(avgFear>40?'Block fear already high → businesses complying':'More threats needed for block compliance');
+      f.long.push('3+ threats on one NPC → permanent grudge');
+      if(npc.timesThreated>=2)f.risk.push(`Already threatened ${npc.timesThreated}x — grudge risk!`);
+      if(p.heat>40)f.risk.push('High heat — cops may escalate');
+      break;
+    case'bribe':
+      const bc=bribeCost(npc);
+      f.reward.push(`Loyalty +10 for $${bc}`);
+      if(npc.role==='cop')f.reward.push(`Heat -${npc.sub.includes('detective')?15:8}`);
+      if(npc.witness)f.reward.push('Silences witness');
+      if(npc.personality==='cunning')f.risk.push('18% chance they pocket it and give nothing');
+      f.short.push('Immediate loyalty gain, no heat');
+      f.long.push('High loyalty → NPC warns you about raids, helps in conflicts');
+      f.long.push('Bribing cops = contact, but they may flip later (+15 heat)');
+      f.long.push(crewLowLoy>0?`${crewLowLoy} crew at low loyalty — consider investing`:'Crew loyalty stable');
+      break;
+    case'collect':
+      const rac=p.rackets.find(r=>r.npcId===npc.id&&r.missed>0);
+      if(rac)f.reward.push(`Collect $${rac.pay*rac.missed} owed`);
+      f.risk.push('Fear spreads to nearby NPCs');
+      f.risk.push(`${Math.round(100-RNG.skill(p.skills.intimidation,npc.nerve).chance)}% fail chance`);
+      f.short.push('+Territory control, +Rep');
+      f.long.push('Successful collection strengthens block control');
+      if(npc.nerve>50)f.risk.push('High nerve — may fight back');
+      break;
+    case'deal':
+      const val=200+p.tier*150;
+      f.reward.push(`~$${Math.floor(val*.2)} profit`);
+      f.reward.push('Rep +8, supplier trust grows');
+      f.risk.push(`Sting chance: ${Math.round(Math.max(2,5+p.heat*.5-p.skills.streetSmarts*3))}%`);
+      if(p.heat>30)f.risk.push('High heat increases sting chance significantly');
+      f.short.push(risk.payMod>1?`Night bonus: +${Math.round((risk.payMod-1)*100)}% pay`:'Daytime — standard rates');
+      f.long.push('Trust builds → bulk discounts later');
+      f.long.push('Getting arrested crashes everything — territory, crew, economy');
+      break;
+    case'recruit':
+      f.reward.push(`${npc.spec} joins crew`);
+      f.reward.push('+Territory control, +Rep');
+      f.risk.push(`$${npc.salary}/week salary`);
+      f.risk.push(npc.fear>=50?'Recruited by fear — low starting loyalty, betrayal risk':'');
+      f.short.push('Immediate operational boost');
+      f.long.push('Loyalty investment pays off long-term');
+      f.long.push(`Weekly expenses will be $${p.crew.reduce((s,c)=>s+c.salary,0)+npc.salary}`);
+      if(p.crew.reduce((s,c)=>s+c.salary,0)+npc.salary>p.total*.3)f.risk.push('Salary may exceed 30% of your cash!');
+      break;
+    case'shakedown':
+      f.reward.push(`$${200+p.tier*100}/week passive income`);
+      f.reward.push('+Territory +10, +Rep +10');
+      f.risk.push('Major fear spread — nearby NPCs affected');
+      f.risk.push(`Heat +${Math.round(8*risk.heatMod)} (if intimidation used)`);
+      if(actCount>=2)f.risk.push('Pattern detection active on this block!');
+      f.short.push('Instant income source');
+      f.long.push('More rackets = more income but more exposure');
+      f.long.push('Shakedowns lower nearby NPC nerve → future shakedowns easier');
+      f.long.push(p.rackets.filter(r=>r.active).length>=3?'3+ rackets attracts financial investigation':'');
+      if(npc.personality==='aggressive')f.risk.push('Aggressive NPC — will deal HP damage on failure');
+      break;
+  }
+  return f;
+}
+
+// Format forecast into HTML for display
+function renderForecast(action,npc){
+  const f=forecast(action,npc);
+  if(!f.reward.length&&!f.risk.length)return'';
+  let h='<div class="forecast">';
+  if(f.reward.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--green)">Reward:</span> ${f.reward.filter(Boolean).join(' · ')}</div>`;
+  if(f.risk.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--red)">Risk:</span> ${f.risk.filter(Boolean).join(' · ')}</div>`;
+  if(f.short.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--orange)">Now:</span> ${f.short.filter(Boolean).join(' · ')}</div>`;
+  if(f.long.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--accent)">Long-term:</span> ${f.long.filter(Boolean).join(' · ')}</div>`;
+  h+='</div>';
+  return h;
+}
+
+// Empire health analysis — shows strategic situation
+function empireHealth(){
+  const p=G.p;
+  const h={threats:[],strengths:[],advice:[]};
+  // Income vs expenses
+  const weeklyInc=p.rackets.filter(r=>r.active).reduce((s,r)=>s+r.pay,0)+p.fronts.filter(f=>!f.raided).reduce((s,f)=>s+f.legit,0)+Object.values(BLK).filter(b=>b.ctrl.player>=50).reduce((s,b)=>s+Math.floor(b.ctrl.player*2),0);
+  const weeklyExp=p.crew.reduce((s,c)=>s+c.salary,0);
+  if(weeklyInc>weeklyExp*1.5)h.strengths.push(`Strong income: $${weeklyInc}/wk vs $${weeklyExp}/wk expenses`);
+  else if(weeklyInc<weeklyExp)h.threats.push(`Bleeding money: $${weeklyInc}/wk income vs $${weeklyExp}/wk expenses`);
+  // Heat trajectory
+  if(p.heat>50)h.threats.push(`Heat at ${p.heat} — raids, stings, and wanted status imminent`);
+  else if(p.heat>30)h.threats.push(`Heat rising (${p.heat}) — consider laying low or bribing cops`);
+  else h.strengths.push(`Heat manageable (${p.heat}) — room to operate`);
+  // Crew stability
+  const lowLoy=p.crew.filter(c=>c.loyalty<25);
+  if(lowLoy.length>0)h.threats.push(`${lowLoy.length} crew member${lowLoy.length>1?'s':''} at betrayal risk (loyalty < 25)`);
+  if(p.crew.length>0&&lowLoy.length===0)h.strengths.push('Crew loyalty stable — no betrayal risk');
+  // Territory
+  const pBlocks=Object.values(BLK).filter(b=>b.ctrl.player>=50).length;
+  const contested=Object.values(BLK).filter(b=>b.ctrl.player>20&&b.ctrl.player<50).length;
+  if(pBlocks>=3)h.strengths.push(`${pBlocks} blocks controlled — solid base`);
+  if(contested>0)h.threats.push(`${contested} block${contested>1?'s':''} contested — defend or lose`);
+  // Rival pressure
+  for(const r of Object.values(G.rivals)){
+    if(r.phase==='attack')h.threats.push(`${r.name} attacking! Defend now.`);
+    else if(r.phase==='provoke')h.threats.push(`${r.name} provoking — attack soon`);
+    else if(r.hostility>60)h.threats.push(`${r.name} highly hostile (${r.hostility})`);
+  }
+  // Racket health
+  const overdueRac=p.rackets.filter(r=>r.active&&r.missed>0);
+  if(overdueRac.length>0)h.threats.push(`${overdueRac.length} overdue racket${overdueRac.length>1?'s':''} — collect or lose them`);
+  // Grudges
+  const grudgeCount=Object.values(G.npcs).filter(n=>n.grudge&&n.block===p.block).length;
+  if(grudgeCount>0)h.threats.push(`${grudgeCount} NPC${grudgeCount>1?'s':''} hold grudges against you here`);
+  // Cash reserves
+  if(p.cash.dirty>5000&&p.fronts.length===0)h.advice.push('Large dirty cash reserves — invest in a front to launder');
+  if(p.total<weeklyExp*2)h.advice.push('Low reserves — less than 2 weeks of expenses');
+  // Strategic advice
+  if(pBlocks<3&&p.tier>=2)h.advice.push('Expand territory: shakedown businesses to control blocks');
+  if(pBlocks>=4&&p.crew.length<3)h.advice.push('Consolidate: recruit crew to defend your territory');
+  if(p.heat>40&&p.fronts.length>0)h.advice.push('Lay low: skip a day at safe house, bribe cops, use forger');
+  if(lowLoy.length>0)h.advice.push('Invest in loyalty: talk to low-loyalty crew, pay on time, do jobs together');
+  if(weeklyInc>3000&&p.heat<20)h.advice.push('Good position to expand — heat is low, income is strong');
+  if(p.heat>60&&pBlocks>3)h.advice.push('Overextended — consolidate before you lose it all');
+  return h;
+}
+
+// Strategic actions — invest, fortify, lay low
+function strategicActions(){
+  const p=G.p,acts=[];
+  // Lay Low — skip a day, reduce heat
+  acts.push({id:'laylow',label:'Lay Low (Skip Day)',on:true,
+    sub:`Skip 1 day. Heat -${3+(G.perkDecayBoost||0)}. Crew ticks, rivals advance. Cost: time.`,
+    forecast:{reward:['Heat decay'],risk:['Miss 1 day of income','Rivals advance','Rackets may go overdue'],short:['Immediate heat drop'],long:['Keeps you out of jail']}});
+  // Invest in Crew Loyalty — spend money to boost all crew loyalty
+  const loyaltyCost=p.crew.length*50;
+  if(p.crew.length>0)acts.push({id:'invest_crew',label:`Invest in Crew ($${loyaltyCost})`,on:p.canAfford(loyaltyCost),
+    sub:`Spend $${loyaltyCost} on crew bonding. All crew loyalty +5. Reduces betrayal risk.`,
+    forecast:{reward:['All crew loyalty +5'],risk:[`Costs $${loyaltyCost}`],short:['Immediate morale boost'],long:['Prevents betrayal cascades that destroy your empire']}});
+  // Fortify Block — spend money to increase territory control
+  const fortCost=300+p.tier*100;
+  acts.push({id:'fortify',label:`Fortify Block ($${fortCost})`,on:p.canAfford(fortCost),
+    sub:`Spend $${fortCost} to fortify ${BLK[p.block]?.name}. Control +10%, cop presence -5.`,
+    forecast:{reward:['+10% territory control','-5 cop presence'],risk:[`Costs $${fortCost}`],short:['Block becomes harder to take'],long:['Strong territory = passive income + rival deterrent']}});
+  // Bribe Precinct — reduce heat system-wide
+  const precinctCost=500+p.heat*20;
+  if(p.heat>15)acts.push({id:'bribe_precinct',label:`Bribe Precinct ($${precinctCost})`,on:p.canAfford(precinctCost),
+    sub:`Pay $${precinctCost} to reduce heat by 15 and lower cop presence across your district.`,
+    forecast:{reward:['Heat -15','District cop presence -5'],risk:[`Costs $${precinctCost}`,'5% chance the bribe is traced (+20 heat)'],short:['Immediate breathing room'],long:['Prevents wanted status, raid cascades']}});
+  // Pay Off Grudges — bribe all grudge NPCs in block
+  const grudgeNpcs=Object.values(G.npcs).filter(n=>n.grudge&&n.block===p.block&&n.alive);
+  if(grudgeNpcs.length>0){
+    const grudgeCost=grudgeNpcs.length*100;
+    acts.push({id:'payoff_grudges',label:`Pay Off Grudges ($${grudgeCost})`,on:p.canAfford(grudgeCost),
+      sub:`Pay $${grudgeCost} to settle ${grudgeNpcs.length} grudge${grudgeNpcs.length>1?'s':''}. Removes sabotage/report risk.`,
+      forecast:{reward:['Remove all local grudges'],risk:[`Costs $${grudgeCost}`],short:['Stop grudge actions (sabotage, reports, robbery)'],long:['Stabilizes your block operations']}});
+  }
+  return acts;
+}
+
+function doStrategicAction(id){
+  const p=G.p;
+  switch(id){
+    case'laylow':
+      dayTick();
+      addLog('Laid low for a day. Heat decaying, but the world keeps moving.','i');
+      break;
+    case'invest_crew':{
+      const cost=p.crew.length*50;
+      if(!p.spend(cost))return;
+      p.crew.forEach(c=>{c.loyalty=Math.min(100,c.loyalty+5);c.betrayDays=Math.max(0,c.betrayDays-3)});
+      addLog(`Invested $${cost} in crew bonding. All crew loyalty +5.`,'s');
+      G.notoriety.cunning++;
+      break;}
+    case'fortify':{
+      const cost=300+p.tier*100;
+      if(!p.spend(cost))return;
+      const blk=BLK[p.block];if(blk){blk.ctrl.player=Math.min(100,blk.ctrl.player+10);blk.cops=Math.max(0,blk.cops-5);recalc(blk)}
+      addLog(`Fortified ${BLK[p.block]?.name}. Control +10%, cops -5.`,'s');
+      addRep(3,'fortify');G.notoriety.business++;
+      break;}
+    case'bribe_precinct':{
+      const cost=500+p.heat*20;
+      if(!p.spend(cost))return;
+      if(RNG.chance(5)){addHeat(20,'bribe_traced');addLog('The bribe was TRACED! Heat surges!','d')}
+      else{addHeat(-15,'bribe_precinct');
+        const did=G.p.district;const dblks=DIST[did]?.blocks||[];
+        dblks.forEach(bid=>{const b=BLK[bid];if(b)b.cops=Math.max(5,b.cops-5)});
+        addLog(`Precinct bribed. -15 heat, cop presence reduced across ${DIST[did]?.name}.`,'s');G.notoriety.cunning+=2}
+      break;}
+    case'payoff_grudges':{
+      const grudgeNpcs=Object.values(G.npcs).filter(n=>n.grudge&&n.block===p.block&&n.alive);
+      const cost=grudgeNpcs.length*100;
+      if(!p.spend(cost))return;
+      grudgeNpcs.forEach(n=>{n.grudge=false;n.mood='neutral';n.loyalty=Math.min(100,n.loyalty+10);npcRemember(n,'bribed','Player paid off grudge')});
+      addLog(`Settled ${grudgeNpcs.length} grudge${grudgeNpcs.length>1?'s':''}. Block stabilized.`,'s');
+      G.notoriety.cunning++;
+      break;}
+  }
+  render();updateHUD();
 }
 
 // ─── INTERACTION SYSTEM ───────────────────────────────────
@@ -1847,10 +2083,10 @@ function showNPC(id){
     <div class="acts">`;
   for(const a of acts){
     const rdot=a.id==='talk'?'low':risk.level;
-    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
+    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')" onmouseenter="showForecast('${a.id}','${n.id}')" onmouseleave="hideForecast()"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
     else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
   }
-  h+=`<button class="abtn abtn-x" onclick="closeNPC()">Walk Away</button></div><div id="ares"></div>`;
+  h+=`<button class="abtn abtn-x" onclick="closeNPC()">Walk Away</button></div><div id="fc-preview"></div><div id="ares"></div>`;
   panel.innerHTML=h;panel.scrollIntoView({behavior:'smooth'});
 }
 
@@ -1866,6 +2102,16 @@ function showResult(npcId,r){
   addLog(r.text.split('\n')[0],r.ok?'s':'w');
 }
 function closeNPC(){document.getElementById('apanel').innerHTML='';G.paused=false}
+function renderForecast_inline(f){
+  let h='<div class="forecast">';
+  if(f.reward?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--green)">Reward:</span> ${f.reward.filter(Boolean).join(' · ')}</div>`;
+  if(f.risk?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--red)">Risk:</span> ${f.risk.filter(Boolean).join(' · ')}</div>`;
+  if(f.short?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--orange)">Now:</span> ${f.short.filter(Boolean).join(' · ')}</div>`;
+  if(f.long?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--accent)">Long-term:</span> ${f.long.filter(Boolean).join(' · ')}</div>`;
+  return h+'</div>';
+}
+function showForecast(action,npcId){const el=document.getElementById('fc-preview');if(!el)return;const n=G.npcs[npcId];if(!n)return;el.innerHTML=renderForecast(action,n)}
+function hideForecast(){const el=document.getElementById('fc-preview');if(el)el.innerHTML=''}
 
 // ── JOBS ──────────────────────────────────────────────────
 function renderJobs(c){
@@ -1889,7 +2135,30 @@ function renderJobs(c){
 // ── CREW/EMPIRE ───────────────────────────────────────────
 function renderCrew(c){
   const p=G.p;
-  let h=`<div class="sec"><h3>👥 Crew (${p.crew.length}/${p.crewSlots})</h3>`;
+  // Empire Health Dashboard
+  const eh=empireHealth();
+  let h=`<div class="empire-health"><h3 style="margin-bottom:8px">📊 Empire Status</h3>`;
+  for(const t of eh.threats)h+=`<div class="eh-row"><span class="eh-icon">⚠️</span><span class="eh-threat">${t}</span></div>`;
+  for(const s of eh.strengths)h+=`<div class="eh-row"><span class="eh-icon">✅</span><span class="eh-strength">${s}</span></div>`;
+  for(const a of eh.advice)h+=`<div class="eh-row"><span class="eh-icon">💡</span><span class="eh-advice">${a}</span></div>`;
+  if(!eh.threats.length&&!eh.strengths.length)h+=`<div class="eh-row"><span class="eh-icon">📋</span><span class="eh-advice">Start building your empire — talk to NPCs, take jobs, earn rep.</span></div>`;
+  h+=`</div>`;
+
+  // Strategic Actions
+  const strats=strategicActions();
+  if(strats.length>0){
+    h+=`<div class="sec"><h3>🎯 Strategic Actions</h3>`;
+    for(const s of strats){
+      h+=`<div class="strat-card" onclick="doStrategicAction('${s.id}')">
+        <div class="strat-label">${s.label}</div>
+        <div class="strat-sub">${s.sub}</div>
+        ${s.forecast?renderForecast_inline(s.forecast):''}
+      </div>`;
+    }
+    h+=`</div>`;
+  }
+
+  h+=`<div class="sec"><h3>👥 Crew (${p.crew.length}/${p.crewSlots})</h3>`;
   if(p.crew.length===0)h+=`<p class="muted">No crew. Find and recruit people from the streets.</p>`;
   for(const cr of p.crew){
     const lc=cr.loyalty>=60?'var(--accent)':cr.loyalty>=30?'var(--orange)':'var(--red)';
