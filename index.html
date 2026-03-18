@@ -1695,7 +1695,7 @@ function doArrest(){
   addHeat(15,'arrested');
   p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
   cascade('arrest',p.block,{success:false,failure:true});
-  const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
+  const days=2+p.arrests;const _wasPaused=G.paused;G._inArrest=true;for(let i=0;i<days;i++)dayTick();G._inArrest=false;if(_wasPaused)G.paused=true;
   addLog(`Arrested! Cash seized: $${lost}. Bail: $${bail}. Lost ${days} days.`,'d');
 
   // ── FAILURE AS STORY: Arrest opens doors ──
@@ -2166,6 +2166,7 @@ function checkGrudgeActions(){
 
 // Police raid event — triggered at high heat, targets fronts and rackets
 function policeRaid(){
+  if(G._inArrest)return;// Don't trigger raid modal during arrest processing
   const p=G.p;
   showModal('POLICE RAID','Sirens blare. Multiple police vehicles converge on your territory. This is a coordinated raid!',
     [{label:'Bribe the precinct captain',sub:`$${2000*p.tier}. Persuasion check for discount.`},
@@ -2728,11 +2729,19 @@ function showResult(npcId,r){
   let chg='';
   if(r.chg){chg='<div class="chg">';for(const[k,v]of Object.entries(r.chg)){
     const n=typeof v==='string'&&v.startsWith('-');chg+=`<span class="${n?'chg-n':'chg-p'}">${k}: ${v}</span>`}chg+='</div>'}
-  el.innerHTML=`<div class="res ${cls}"><p>${r.text.replace(/\n/g,'<br>')}</p>${chg}<button class="abtn abtn-s" style="margin-top:8px" onclick="showNPC('${npcId}')">Continue</button></div>`;
-  // Don't auto-rebuild — let the player click Continue to refresh stats
+  el.innerHTML=`<div class="res ${cls}"><p>${r.text.replace(/\n/g,'<br>')}</p>${chg}</div>`;
   addLog(r.text.split('\n')[0],r.ok?'s':'w');
+  // Refresh NPC panel after short delay so player sees result then can act again
+  // Only refresh if the panel is still showing this specific NPC
+  const _refreshId=npcId;
+  setTimeout(()=>{
+    const panel=document.getElementById('apanel');
+    if(!panel||!panel.innerHTML)return;// Panel was closed — don't reopen
+    if(!G.paused)return;// Game already unpaused — don't re-pause
+    const n=G.npcs[_refreshId];if(n&&n.alive)showNPC(_refreshId);
+  },600);
 }
-function closeNPC(){document.getElementById('apanel').innerHTML='';G.paused=false}
+function closeNPC(){document.getElementById('apanel').innerHTML='';G.paused=false;clearKeys()}
 function renderForecast_inline(f){
   let h='<div class="forecast">';
   if(f.reward?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--green)">Reward:</span> ${f.reward.filter(Boolean).join(' · ')}</div>`;
@@ -2990,9 +2999,15 @@ function initNPCWorld(){
 function clearKeys(){for(const k in keys)keys[k]=false;PW.moving=false}
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();keys[k]=true;
-  if(k==='e'&&!G.paused&&!G._mapOpen)tryWorldInteract();
+  if(k==='e'&&!G._mapOpen){
+    if(G.paused&&document.getElementById('apanel')?.innerHTML){closeNPC();e.preventDefault()}// E closes NPC panel
+    else if(!G.paused){tryWorldInteract()}
+  }
+  if(k==='escape'){
+    if(G._mapOpen){closeFullMap();e.preventDefault()}
+    else if(G.paused&&document.getElementById('apanel')?.innerHTML){closeNPC();e.preventDefault()}// ESC closes NPC panel
+  }
   if(k==='m'&&gameStarted){toggleFullMap();e.preventDefault()}
-  if(k==='escape'&&G._mapOpen){closeFullMap();e.preventDefault()}
   if(k===' '&&gameStarted&&!G._mapOpen){G.paused=!G.paused;G.time.last=0;clearKeys();const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
   if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)&&!G._mapOpen)e.preventDefault();
 });
@@ -3558,6 +3573,10 @@ function drawNPC(ctx,n,cvs){
 // ─── GAME LOOP ────────────────────────────────────────────
 const cvs=document.getElementById('world');
 const ctx=cvs.getContext('2d');
+// Click canvas to close NPC panel and unpause
+cvs.addEventListener('click',()=>{
+  if(G.paused&&document.getElementById('apanel')?.innerHTML){closeNPC()}
+});
 
 function resizeCanvas(){
   const par=cvs.parentElement;cvs.width=par.clientWidth;cvs.height=par.clientHeight;
