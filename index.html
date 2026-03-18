@@ -10,7 +10,9 @@
 :root{--bg:#0a0a0f;--panel:#12121a;--card:#1a1a28;--hover:#222235;--border:#2a2a3d;--text:#d0d0e0;--dim:#707090;--accent:#4a9eff;--red:#ff4444;--orange:#ffa500;--green:#44cc66;--gold:#ffd700;--purple:#cc88ff}
 body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
 
-.game{display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto 1fr auto;height:100vh;gap:1px;background:var(--border)}
+.game{display:grid;grid-template-columns:1fr 360px 300px;grid-template-rows:auto 1fr auto;height:100vh;gap:1px;background:var(--border)}
+#world{display:block;width:100%;height:100%;background:#111118;cursor:crosshair;image-rendering:pixelated}
+.e-prompt{position:absolute;background:rgba(0,0,0,.8);color:var(--accent);padding:2px 8px;border-radius:4px;font-size:11px;pointer-events:none;font-family:'JetBrains Mono',monospace;border:1px solid var(--accent)}
 
 /* ─── HUD ─── */
 .hud{grid-column:1/-1;background:var(--panel);display:flex;align-items:center;padding:8px 16px;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
@@ -178,7 +180,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
 /* Locked districts */
 .nbtn.locked{opacity:.4;cursor:not-allowed;border-style:dashed}
 
-@media(max-width:768px){.game{grid-template-columns:1fr}.logbar{max-height:200px}.hud{gap:8px}}
+@media(max-width:900px){.game{grid-template-columns:1fr;grid-template-rows:auto 300px 1fr auto}#world{height:300px}.logbar{max-height:150px}.hud{gap:8px}}
 </style>
 </head>
 <body>
@@ -203,6 +205,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
       <button class="cbtn" onclick="G.save()" title="Save">💾</button>
     </div>
   </div>
+  <div style="position:relative;overflow:hidden"><canvas id="world"></canvas></div>
   <div class="main">
     <div class="tabs">
       <button class="tab on" onclick="switchTab('explore',this)">Explore</button>
@@ -214,7 +217,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
     <div id="content"></div>
   </div>
   <div class="logbar"><div class="loghd">Activity Log</div><div id="log"></div></div>
-  <div class="foot"><span>Crime Empire v0.3</span><span>|</span><span>100% Free — Zero Dependencies</span></div>
+  <div class="foot"><span>Crime Empire v1.0</span><span>|</span><span>100% Free — Zero Dependencies</span></div>
 </div>
 
 <script>
@@ -506,6 +509,7 @@ function addRep(n,src){
     if(nw.t%2===0){G.p.skillPts++;addLog(`Skill point earned! (${G.p.skillPts} unspent)`,'r')}
     addLog(`TIER UP! You are now a ${nw.title} (Tier ${nw.t}). Crew slots: ${nw.slots}.`,'r');
     Object.values(G.rivals).forEach(r=>r.hostility=Math.min(100,r.hostility+10));
+    if(typeof checkLair==='function')checkLair();
   }
   if(nw.t<old.t){
     G.p.crewSlots=nw.slots;
@@ -1379,15 +1383,390 @@ function renderSkills(c){
 }
 function upSkill(k){const p=G.p;if(p.skillPts<=0||p.skills[k]>=8)return;p.skillPts--;p.skills[k]++;addLog(`${k} upgraded to level ${p.skills[k]}.`,'r');render();updateHUD()}
 
+// ═══════════════════════════════════════════════════════════
+// CANVAS WORLD ENGINE
+// ═══════════════════════════════════════════════════════════
+const T=16,WW=120,WH=80; // tile size, world tiles
+const PSPD=2.2,NSPD=0.6,CSPD=1.0,IDIST=36,BGDIST=40;
+let tiles=[];// 2D array [y][x] of tile types: 0=road,1=sidewalk,2=building,3=wall,4=alley,5=water,6=lair
+
+// District world regions: {x,y,w,h} in tiles
+const DREG={
+  the_row:{x:0,y:0,w:40,h:40},the_docks:{x:40,y:0,w:40,h:20},
+  old_quarter:{x:40,y:20,w:40,h:20},midtown:{x:80,y:0,w:40,h:20},
+  the_strip:{x:80,y:20,w:40,h:20},uptown:{x:0,y:40,w:40,h:40}
+};
+// Block sub-regions within districts (2x2 grid per district)
+const BREG={};
+function initBlockRegions(){
+  for(const[did,dr]of Object.entries(DREG)){
+    const dist=DIST[did];if(!dist)continue;
+    const bw=Math.floor(dr.w/2),bh=Math.floor(dr.h/2);
+    dist.blocks.forEach((bid,i)=>{
+      const col=i%2,row=Math.floor(i/2);
+      BREG[bid]={x:dr.x+col*bw,y:dr.y+row*bh,w:bw,h:bh,did};
+    });
+  }
+}
+
+// World generation
+function genWorld(){
+  tiles=[];
+  for(let y=0;y<WH;y++){tiles[y]=[];for(let x=0;x<WW;x++)tiles[y][x]=2}// default building
+  // Lay roads in a grid pattern
+  for(let y=0;y<WH;y++)for(let x=0;x<WW;x++){
+    // Major roads every 10 tiles, minor every 5
+    const xMaj=x%10===0||x%10===1, xMin=x%5===0;
+    const yMaj=y%10===0||y%10===1, yMin=y%5===0;
+    if(xMaj||yMaj)tiles[y][x]=0;// road
+    else if(xMin||yMin)tiles[y][x]=1;// sidewalk
+    // Alleys: random gaps in buildings
+    else if((x%5===3||x%5===4)&&y%7===3)tiles[y][x]=4;
+  }
+  // Water edge for docks
+  const dr=DREG.the_docks;
+  for(let x=dr.x;x<dr.x+dr.w;x++){tiles[0][x]=5;tiles[1][x]=5;if(RNG.chance(40))tiles[2][x]=5}
+  // Mark walls (building edges adjacent to walkable)
+  for(let y=1;y<WH-1;y++)for(let x=1;x<WW-1;x++){
+    if(tiles[y][x]===2){
+      const adj=[tiles[y-1][x],tiles[y+1][x],tiles[y][x-1],tiles[y][x+1]];
+      if(adj.some(t=>t===0||t===1||t===4))tiles[y][x]=3;// wall
+    }
+  }
+}
+
+function walkable(tx,ty){if(tx<0||ty<0||tx>=WW||ty>=WH)return false;const t=tiles[ty][tx];return t===0||t===1||t===4}
+function worldToBlock(wx,wy){
+  const tx=Math.floor(wx/T),ty=Math.floor(wy/T);
+  for(const[bid,br]of Object.entries(BREG)){if(tx>=br.x&&tx<br.x+br.w&&ty>=br.y&&ty<br.y+br.h)return bid}
+  return G.p.block;
+}
+function blockCenter(bid){const br=BREG[bid];if(!br)return{x:400,y:300};return{x:(br.x+br.w/2)*T,y:(br.y+br.h/2)*T}}
+
+// Player world state
+const PW={x:0,y:0,dir:0,frame:0,moving:false};// dir: 0=down,1=left,2=right,3=up
+const CAM={x:0,y:0};
+const keys={};
+
+// NPC world positions
+function initNPCWorld(){
+  for(const n of Object.values(G.npcs)){
+    const br=BREG[n.block];
+    if(br){
+      // Find a walkable spot in their block
+      let placed=false;
+      for(let tries=0;tries<50;tries++){
+        const tx=br.x+RNG.int(1,br.w-2),ty=br.y+RNG.int(1,br.h-2);
+        if(walkable(tx,ty)){n.wx=tx*T+T/2;n.wy=ty*T+T/2;placed=true;break}
+      }
+      if(!placed){n.wx=(br.x+br.w/2)*T;n.wy=(br.y+br.h/2)*T}
+    }else{n.wx=60*T;n.wy=40*T}
+    n.wdir=RNG.int(0,3);n.wtimer=RNG.int(60,200);n.wstate='idle';
+  }
+}
+
+// ─── INPUT ────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();keys[k]=true;
+  if(k==='e'&&!G.paused)tryWorldInteract();
+  if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();
+});
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+
+function tryWorldInteract(){
+  let best=null,bestD=IDIST;
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive)continue;
+    const dx=n.wx-PW.x,dy=n.wy-PW.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<bestD){bestD=d;best=n}
+  }
+  if(best){showNPC(best.id);G.paused=true}
+}
+
+// ─── PLAYER MOVEMENT ─────────────────────────────────────
+function updatePlayer(){
+  if(G.paused)return;
+  let dx=0,dy=0;
+  if(keys.w||keys.arrowup){dy=-1;PW.dir=3}
+  if(keys.s||keys.arrowdown){dy=1;PW.dir=0}
+  if(keys.a||keys.arrowleft){dx=-1;PW.dir=1}
+  if(keys.d||keys.arrowright){dx=1;PW.dir=2}
+  PW.moving=dx!==0||dy!==0;
+  if(!PW.moving)return;
+  // Normalize diagonal
+  if(dx&&dy){dx*=0.707;dy*=0.707}
+  const nx=PW.x+dx*PSPD,ny=PW.y+dy*PSPD;
+  const tx=Math.floor(nx/T),ty=Math.floor(ny/T);
+  if(walkable(tx,ty)){PW.x=nx;PW.y=ny}
+  else if(walkable(tx,Math.floor(PW.y/T))){PW.x=nx}// slide along walls
+  else if(walkable(Math.floor(PW.x/T),ty)){PW.y=ny}
+  PW.frame++;
+  // Check block change
+  const nb=worldToBlock(PW.x,PW.y);
+  if(nb!==G.p.block){
+    const did=BREG[nb]?.did;const req=DIST_REQ[did]||1;
+    if(G.p.tier<req){// Push back
+      PW.x-=dx*PSPD;PW.y-=dy*PSPD;
+      if(!G._lockMsg){addLog(`Locked area — need ${TIERS[req-1]?.title} to enter ${DIST[did]?.name||did}.`,'w');G._lockMsg=true;setTimeout(()=>G._lockMsg=false,3000)}
+    }else{G.p.block=nb;G.p.district=BREG[nb]?.did||G.p.district;
+      G.blockActions={};
+      if(RNG.chance(15+G.p.heat*0.25))randomEvent();
+      render();updateHUD();
+    }
+  }
+}
+
+// ─── NPC AI ───────────────────────────────────────────────
+function updateNPCs(){
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive||n.wx===undefined)continue;
+    // Bodyguard follow
+    if(n.worksFor==='player'&&n.spec==='muscle'&&n.role==='crew'){
+      const dx=PW.x-n.wx,dy=PW.y-n.wy,d=Math.sqrt(dx*dx+dy*dy);
+      if(d>BGDIST){const s=PSPD*.85;n.wx+=dx/d*s;n.wy+=dy/d*s;n.wdir=Math.abs(dx)>Math.abs(dy)?(dx>0?2:1):(dy>0?0:3)}
+      continue;
+    }
+    // Cop patrol: move toward player when heat high
+    if(n.role==='cop'&&G.p.heat>40){
+      const dx=PW.x-n.wx,dy=PW.y-n.wy,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<300&&d>30){const s=CSPD;n.wx+=dx/d*s;n.wy+=dy/d*s;n.wdir=Math.abs(dx)>Math.abs(dy)?(dx>0?2:1):(dy>0?0:3);continue}
+    }
+    // Standard wander AI
+    n.wtimer--;
+    if(n.wtimer<=0){
+      n.wstate=n.wstate==='idle'?'walk':'idle';
+      n.wtimer=RNG.int(60,240);
+      if(n.wstate==='walk'){
+        n.wdir=RNG.int(0,3);
+        // Cowardly flee from player
+        if(n.personality==='cowardly'&&n.fear>50){
+          const dx=n.wx-PW.x,dy=n.wy-PW.y;
+          n.wdir=Math.abs(dx)>Math.abs(dy)?(dx>0?2:1):(dy>0?0:3);
+        }
+      }
+    }
+    if(n.wstate==='walk'){
+      const spd=n.role==='cop'?CSPD:NSPD;
+      const ddx=[0,-1,1,0][n.wdir]*spd, ddy=[1,0,0,-1][n.wdir]*spd;
+      const nx=n.wx+ddx,ny=n.wy+ddy;
+      const tx=Math.floor(nx/T),ty=Math.floor(ny/T);
+      if(walkable(tx,ty)){n.wx=nx;n.wy=ny}
+      else{n.wstate='idle';n.wtimer=RNG.int(30,120)}// hit wall, stop
+    }
+  }
+}
+
+// ─── CAMERA ───────────────────────────────────────────────
+function updateCam(cvs){
+  const tx=PW.x-cvs.width/2, ty=PW.y-cvs.height/2;
+  CAM.x+=(tx-CAM.x)*.1;CAM.y+=(ty-CAM.y)*.1;
+  CAM.x=Math.max(0,Math.min(WW*T-cvs.width,CAM.x));
+  CAM.y=Math.max(0,Math.min(WH*T-cvs.height,CAM.y));
+}
+
+// ─── LAIR ─────────────────────────────────────────────────
+const LAIR={unlocked:false,tx:5,ty:5,entered:false};
+function checkLair(){if(G.p.tier>=4&&!LAIR.unlocked){LAIR.unlocked=true;addLog('LAIR UNLOCKED! A safehouse in Block A is now yours.','r');
+  // Mark lair tiles
+  for(let dy=0;dy<3;dy++)for(let dx=0;dx<4;dx++){if(LAIR.ty+dy<WH&&LAIR.tx+dx<WW)tiles[LAIR.ty+dy][LAIR.tx+dx]=6}
+}}
+
+// ─── RENDERER ─────────────────────────────────────────────
+const TCOL={0:'#2a2a35',1:'#333340',2:'#1e1e28',3:'#282838',4:'#18181f',5:'#1a3a5a',6:'#2a2820'};
+const DCOL={the_row:'#251a1a',the_docks:'#1a2025',old_quarter:'#25201a',midtown:'#1a1a25',the_strip:'#251a25',uptown:'#1a2520'};
+
+function renderWorld(ctx,cvs){
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  const sx=Math.floor(CAM.x/T),sy=Math.floor(CAM.y/T);
+  const ex=Math.min(WW,sx+Math.ceil(cvs.width/T)+2);
+  const ey=Math.min(WH,sy+Math.ceil(cvs.height/T)+2);
+
+  // Draw tiles
+  for(let y=Math.max(0,sy);y<ey;y++){
+    for(let x=Math.max(0,sx);x<ex;x++){
+      const t=tiles[y][x];
+      const px=x*T-CAM.x,py=y*T-CAM.y;
+      // District tint
+      const bid=worldToBlock(x*T,y*T);const br=BREG[bid];
+      ctx.fillStyle=t===6?'#3a3520':TCOL[t]||'#1e1e28';
+      ctx.fillRect(px,py,T,T);
+      // Building windows
+      if(t===2&&x%3===1&&y%3===1){
+        ctx.fillStyle=(G.time.hr>=18||G.time.hr<6)?'rgba(255,200,50,.3)':'rgba(50,50,80,.3)';
+        ctx.fillRect(px+4,py+4,T-8,T-8);
+      }
+      // Lair highlight
+      if(t===6&&LAIR.unlocked){ctx.strokeStyle='#ffd700';ctx.lineWidth=1;ctx.strokeRect(px,py,T,T)}
+    }
+  }
+
+  // Territory overlay
+  for(const[bid,br]of Object.entries(BREG)){
+    const blk=BLK[bid];if(!blk||blk.ctrl.player<10)continue;
+    const px=br.x*T-CAM.x,py=br.y*T-CAM.y;
+    ctx.fillStyle=`rgba(74,158,255,${Math.min(.12,blk.ctrl.player*.0012)})`;
+    ctx.fillRect(px,py,br.w*T,br.h*T);
+  }
+
+  // Collect all sprites for y-sorting
+  const sprites=[];
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive||n.wx===undefined)continue;
+    const dx=n.wx-PW.x,dy=n.wy-PW.y;
+    if(Math.abs(dx)>cvs.width&&Math.abs(dy)>cvs.height)continue;// cull distant
+    sprites.push({type:'npc',n,y:n.wy});
+  }
+  sprites.push({type:'player',y:PW.y});
+  sprites.sort((a,b)=>a.y-b.y);
+
+  for(const s of sprites){
+    if(s.type==='player')drawPlayer(ctx,cvs);
+    else drawNPC(ctx,s.n,cvs);
+  }
+
+  // E prompt
+  let nearNPC=null,nearD=IDIST;
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive)continue;
+    const dx=n.wx-PW.x,dy=n.wy-PW.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<nearD){nearD=d;nearNPC=n}
+  }
+  if(nearNPC&&!G.paused){
+    const px=nearNPC.wx-CAM.x,py=nearNPC.wy-CAM.y-22;
+    ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(px-20,py-6,40,14);
+    ctx.strokeStyle='#4a9eff';ctx.lineWidth=1;ctx.strokeRect(px-20,py-6,40,14);
+    ctx.fillStyle='#4a9eff';ctx.font='9px "JetBrains Mono",monospace';ctx.textAlign='center';
+    ctx.fillText('[E] Talk',px,py+4);
+  }
+
+  // Day/night overlay
+  const hr=G.time.hr;let nightAlpha=0;
+  if(hr>=20||hr<5)nightAlpha=.35;
+  else if(hr>=18)nightAlpha=(hr-18)/2*.35;
+  else if(hr<7)nightAlpha=Math.max(0,(7-hr)/2*.35);
+  if(nightAlpha>0){ctx.fillStyle=`rgba(0,0,30,${nightAlpha})`;ctx.fillRect(0,0,cvs.width,cvs.height)}
+
+  // Heat vignette
+  if(G.p.heat>50){
+    const a=(G.p.heat-50)/100*.3;
+    const grad=ctx.createRadialGradient(cvs.width/2,cvs.height/2,cvs.width*.3,cvs.width/2,cvs.height/2,cvs.width*.7);
+    grad.addColorStop(0,'transparent');grad.addColorStop(1,`rgba(255,0,0,${a})`);
+    ctx.fillStyle=grad;ctx.fillRect(0,0,cvs.width,cvs.height);
+  }
+
+  // Minimap
+  const mmW=100,mmH=Math.floor(WH/WW*mmW),mx=cvs.width-mmW-8,my=8;
+  ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(mx-1,my-1,mmW+2,mmH+2);
+  // Player dot
+  const ppx=mx+(PW.x/(WW*T))*mmW,ppy=my+(PW.y/(WH*T))*mmH;
+  ctx.fillStyle='#4a9eff';ctx.fillRect(ppx-1,ppy-1,3,3);
+  // NPC dots
+  for(const n of Object.values(G.npcs)){
+    if(!n.alive||n.wx===undefined)continue;
+    const nx=mx+(n.wx/(WW*T))*mmW,ny=my+(n.wy/(WH*T))*mmH;
+    ctx.fillStyle=n.role==='cop'?'#4488ff':n.role==='rival'?'#ff4444':n.worksFor==='player'?'#44cc66':'#666';
+    ctx.fillRect(nx,ny,1,1);
+  }
+}
+
+function drawPlayer(ctx,cvs){
+  const px=PW.x-CAM.x,py=PW.y-CAM.y;
+  const walk=PW.moving?Math.floor(PW.frame/8)%2:0;
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.ellipse(px,py+7,5,2,0,0,Math.PI*2);ctx.fill();
+  // Body
+  ctx.fillStyle='#222';ctx.fillRect(px-4,py-6,8,10);
+  // Head
+  ctx.fillStyle='#ddb088';ctx.fillRect(px-3,py-12,6,6);
+  // Legs
+  ctx.fillStyle='#1a1a2a';
+  if(walk){ctx.fillRect(px-3,py+4,3,4);ctx.fillRect(px+1,py+2,3,4)}
+  else{ctx.fillRect(px-3,py+4,3,3);ctx.fillRect(px+1,py+4,3,3)}
+  // Name
+  ctx.fillStyle='#ffd700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+  ctx.fillText('YOU',px,py-14);
+  // Bodyguard count
+  const bgCount=G.p.crew.filter(c=>c.spec==='muscle').length;
+  if(bgCount>0){ctx.fillStyle='#44cc66';ctx.font='7px sans-serif';ctx.fillText(bgCount+'x BG',px,py+14)}
+}
+
+function drawNPC(ctx,n,cvs){
+  const px=n.wx-CAM.x,py=n.wy-CAM.y;
+  if(px<-30||py<-30||px>cvs.width+30||py>cvs.height+30)return;
+  const col=n.role==='cop'?'#3366cc':n.role==='rival'?'#cc3333':n.worksFor==='player'?'#33aa55':n.role==='contact'?'#cc9933':'#888';
+  const walk=n.wstate==='walk'?Math.floor(Date.now()/200)%2:0;
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,.2)';ctx.beginPath();ctx.ellipse(px,py+5,4,1.5,0,0,Math.PI*2);ctx.fill();
+  // Body
+  ctx.fillStyle=col;ctx.fillRect(px-3,py-5,6,8);
+  // Head
+  ctx.fillStyle='#ddb088';ctx.fillRect(px-2,py-10,4,5);
+  // Legs
+  ctx.fillStyle='#333';
+  if(walk){ctx.fillRect(px-2,py+3,2,3);ctx.fillRect(px+1,py+1,2,3)}
+  else{ctx.fillRect(px-2,py+3,2,2);ctx.fillRect(px+1,py+3,2,2)}
+  // Cop hat
+  if(n.role==='cop'){ctx.fillStyle='#2244aa';ctx.fillRect(px-3,py-12,6,2)}
+  // Name label
+  const dist=Math.sqrt((PW.x-n.wx)**2+(PW.y-n.wy)**2);
+  if(dist<120){
+    ctx.fillStyle='rgba(0,0,0,.6)';
+    const nm=n.name.split(' ')[0];const tw=ctx.measureText?6*nm.length:40;
+    ctx.fillRect(px-tw/2-2,py-18,tw+4,10);
+    ctx.fillStyle='#eee';ctx.font='8px sans-serif';ctx.textAlign='center';
+    ctx.fillText(nm,px,py-10);
+    // Personality icon
+    if(n.personality&&dist<80){
+      const pIcons={greedy:'$',paranoid:'!',loyal:'♥',aggressive:'⚡',cowardly:'~',cunning:'?',generous:'+',volatile:'⚠'};
+      ctx.fillStyle=col;ctx.font='7px sans-serif';ctx.fillText(pIcons[n.personality]||'',px+tw/2+4,py-10);
+    }
+  }
+  // Witness glow
+  if(n.witness){ctx.strokeStyle='rgba(255,68,68,.5)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,py-2,8,0,Math.PI*2);ctx.stroke()}
+}
+
 // ─── GAME LOOP ────────────────────────────────────────────
-function loop(ts){updateTime(ts);requestAnimationFrame(loop)}
+const cvs=document.getElementById('world');
+const ctx=cvs.getContext('2d');
+
+function resizeCanvas(){
+  const par=cvs.parentElement;cvs.width=par.clientWidth;cvs.height=par.clientHeight;
+}
+
+function loop(ts){
+  updateTime(ts);
+  if(!G.paused){updatePlayer();updateNPCs()}
+  updateCam(cvs);
+  renderWorld(ctx,cvs);
+  requestAnimationFrame(loop);
+}
 
 // ─── INIT ─────────────────────────────────────────────────
 document.getElementById('btn-pause').addEventListener('click',function(){G.paused=!G.paused;G.time.last=0;this.textContent=G.paused?'▶':'⏸'});
 
+// Override moveTo for canvas teleporting
+const _origMoveTo=G.moveTo.bind(G);
+G.moveTo=function(blk){
+  const old=this.p.block;
+  _origMoveTo(blk);
+  if(this.p.block!==old){const c=blockCenter(blk);PW.x=c.x;PW.y=c.y;CAM.x=PW.x-cvs.width/2;CAM.y=PW.y-cvs.height/2}
+};
+// Override closeNPC to unpause
+const _origClose=closeNPC;
+closeNPC=function(){_origClose();G.paused=false};
+
 G.init();
-// Try auto-load
-if(localStorage.getItem('ce_save')){addLog('Save detected. Type in console: G.load() to restore.','i')}
+initBlockRegions();
+genWorld();
+
+// Place player
+const startC=blockCenter('row_a');PW.x=startC.x;PW.y=startC.y;
+initNPCWorld();
+checkLair();
+
+resizeCanvas();
+window.addEventListener('resize',resizeCanvas);
+if(localStorage.getItem('ce_save')){addLog('Save found. Run G.load() in console to restore.','i')}
 updateHUD();render();renderLog();
 requestAnimationFrame(loop);
 </script>
