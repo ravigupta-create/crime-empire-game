@@ -209,6 +209,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
 .home-load:hover{background:var(--accent);color:#000}
 .home-tip{color:var(--dim);font-size:11px;margin-top:16px}
 .home-ver{color:var(--dim);font-size:10px;margin-top:24px;opacity:.5}
+.scn-opt{display:block;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:.15s}
+.scn-opt:hover{border-color:var(--accent);background:var(--hover)}
+.scn-opt.on{border-color:var(--accent);background:rgba(74,158,255,.08)}
+.scn-name{font-weight:700;font-size:13px;color:var(--accent);display:block}
+.scn-desc{font-size:11px;color:var(--dim)}
 
 @media(max-width:900px){.game{grid-template-columns:1fr;grid-template-rows:auto 300px 1fr auto}#world{height:300px}.logbar{max-height:150px}.hud{gap:8px}.home h1{font-size:28px}}
 </style>
@@ -235,6 +240,17 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
         Build rep to unlock new districts, crew slots, and abilities. Manage your heat — cops get aggressive when it rises.
         Earn dirty money, launder it through front businesses, and expand your territory block by block.
       </div>
+    </div>
+    <div class="home-controls" id="scenario-pick" style="margin-bottom:16px">
+      <h3>Starting Scenario</h3>
+      <div id="scenario-list" style="display:flex;flex-direction:column;gap:6px">
+        <label class="scn-opt on" onclick="pickScenario(0,this)"><input type="radio" name="scn" checked style="display:none"><span class="scn-name">Fresh Start</span><span class="scn-desc">Nothing but your wits. Classic experience.</span></label>
+        <label class="scn-opt" onclick="pickScenario(1,this)"><input type="radio" name="scn" style="display:none"><span class="scn-name">Connected</span><span class="scn-desc">Start with $500 and a contact who owes you a favor. Easier early game.</span></label>
+        <label class="scn-opt" onclick="pickScenario(2,this)"><input type="radio" name="scn" style="display:none"><span class="scn-name">Heat Wave</span><span class="scn-desc">Start at Heat 30. Cops are already watching. Every move is tense.</span></label>
+        <label class="scn-opt" onclick="pickScenario(3,this)"><input type="radio" name="scn" style="display:none"><span class="scn-name">Rival Territory</span><span class="scn-desc">Rivals have 70%+ control everywhere. You start surrounded.</span></label>
+        <label class="scn-opt" onclick="pickScenario(4,this)"><input type="radio" name="scn" style="display:none"><span class="scn-name">War Zone</span><span class="scn-desc">All 3 rival gangs are hostile and fighting each other. Pure chaos.</span></label>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--dim)">World Seed: <input id="seed-input" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:2px 8px;border-radius:3px;width:100px;font-family:'JetBrains Mono',monospace" placeholder="random" title="Same seed = same world layout, NPC traits, district values"> <span style="color:var(--dim)">(same seed = same world)</span></div>
     </div>
     <div>
       <button class="home-start" onclick="startGame(false)">Start Game</button>
@@ -406,43 +422,170 @@ function makeCiv(blk){
   return new NPC({name:RNG.pick(FIRST)+' '+RNG.pick(LAST),role:'civilian',nerve:15+RNG.int(0,30),suspicion:30+RNG.int(0,30),block:blk,desc:'A local going about their day.'});
 }
 
-// ─── BLOCKS & DISTRICTS ──────────────────────────────────
+// ─── SEEDED RNG ──────────────────────────────────────────
+// Deterministic RNG for world generation — same seed = same world
+let _seed=1;
+function seedRng(s){_seed=s||Date.now()}
+function srand(){_seed=(_seed*16807+0)%2147483647;return(_seed-1)/2147483646}
+function srandInt(a,b){return a+Math.floor(srand()*(b-a+1))}
+function srandPick(a){return a[Math.floor(srand()*a.length)]}
+
+// ─── SCENARIO & WORLD SETUP ──────────────────────────────
+let selectedScenario=0;
+function pickScenario(i,el){selectedScenario=i;document.querySelectorAll('.scn-opt').forEach(e=>e.classList.remove('on'));if(el)el.classList.add('on')}
+
+// NPC name pools — expanded for variety
+const FIRST2=['Alejandro','Dmitri','Mei','Fatima','Sergei','Amara','Joaquin','Naomi','Idris','Yuki','Ravi','Zara','Oleg','Ines','Kwame','Sienna','Andrei','Lucia','Hassan','Freya'];
+const NICK=['The Hammer','Iceman','Ghost','Snake','Razor','Silk','Iron','Shadow','Bones','Fixer','Doc','Bull','Whisper','Jackal','Crow','Viper'];
+
+function generateNPCNames(){
+  // Randomize the named NPC appearances — different names, personalities, stats each seed
+  const allFirst=[...FIRST,...FIRST2];
+  const roles=[
+    {base:'marcus_fence',role:'contact',sub:'fence',spec:null,block:'row_a',hp:4},
+    {base:'rico_supplier',role:'contact',sub:'supplier',spec:null,block:'row_b',hp:4},
+    {base:'elena_forger',role:'contact',sub:'forger',spec:null,block:'row_c',hp:2,reqRep:50},
+    {base:'dex_lookout',role:'civilian',sub:'lookout',spec:'lookout',block:'row_a',hp:3,salary:80+srandInt(0,60)},
+    {base:'vince_muscle',role:'civilian',sub:'muscle',spec:'muscle',block:'row_b',hp:5+srandInt(0,2),reqRep:50+srandInt(0,100),salary:150+srandInt(0,100)},
+    {base:'sara_driver',role:'civilian',sub:'driver',spec:'driver',block:'docks_a',hp:3,reqRep:100+srandInt(0,150),salary:120+srandInt(0,80)},
+  ];
+  const generated={};
+  const usedNames=new Set();
+  for(const r of roles){
+    let name;do{name=srandPick(allFirst)+' "'+srandPick(NICK)+'" '+srandPick(LAST)}while(usedNames.has(name));
+    usedNames.add(name);
+    const pers=srandPick(PERS);
+    generated[r.base]={id:r.base,name,role:r.role,sub:r.sub,spec:r.spec,
+      loyalty:15+srandInt(0,30),trust:20+srandInt(0,30),nerve:30+srandInt(0,40),suspicion:30+srandInt(0,40),
+      hp:r.hp,maxHp:r.hp,block:r.block,personality:pers,reqRep:r.reqRep||0,salary:r.salary||100,
+      desc:srandPick([`Runs operations on ${BLK[r.block]?.name||r.block}.`,'Known around the block.','Has connections.','A familiar face in the neighborhood.','Been here longer than anyone remembers.'])};
+  }
+  // Fixed role NPCs (cops, rivals) — randomize stats but keep roles
+  generated.officer_daniels={id:'officer_daniels',name:srandPick(allFirst)+' '+srandPick(LAST),role:'cop',sub:'beat_cop',
+    loyalty:0,nerve:40+srandInt(0,30),suspicion:50+srandInt(0,20),hp:5,maxHp:5,block:'row_b',
+    personality:srandPick(['cunning','paranoid','aggressive','loyal']),desc:'Patrols The Row.'};
+  generated.detective_morrison={id:'detective_morrison',name:'Det. '+srandPick(allFirst)+' '+srandPick(LAST),role:'cop',sub:'detective',
+    loyalty:0,nerve:60+srandInt(0,20),suspicion:70+srandInt(0,20),hp:5,maxHp:5,reqRep:300+srandInt(0,400),block:'mid_a',
+    personality:srandPick(['paranoid','cunning']),desc:'Runs investigations. Expensive to buy.'};
+  generated.viktor_enforcer={id:'viktor_enforcer',name:srandPick(allFirst)+' '+srandPick(LAST),role:'rival',sub:'enforcer',
+    loyalty:0,nerve:70+srandInt(0,20),suspicion:65+srandInt(0,20),hp:6+srandInt(0,3),maxHp:9,block:'oq_a',district:'old_quarter',
+    worksFor:'kostarov',personality:srandPick(['aggressive','cunning','paranoid']),desc:'Enforcer for the rival crew.'};
+  // Extra random named NPCs per seed
+  const extras=['jimmy_debtor','chen_shop'];
+  for(const eid of extras){
+    let name;do{name=srandPick(allFirst)+' '+srandPick(LAST)}while(usedNames.has(name));usedNames.add(name);
+    generated[eid]={id:eid,name,role:'civilian',nerve:30+srandInt(0,35),suspicion:25+srandInt(0,30),hp:2+srandInt(0,2),maxHp:4,
+      block:srandPick(['row_a','row_b','row_c']),personality:srandPick(PERS),desc:srandPick(['Owes money.','Runs a small shop.','A quiet local.','Known troublemaker.'])};
+  }
+  // Spawn 2-3 extra recruitable NPCs with random specs
+  const specPool=['muscle','lookout','driver','negotiator','hacker'];
+  for(let i=0;i<2+srandInt(0,2);i++){
+    const eid='extra_'+i;let name;do{name=srandPick(allFirst)+' "'+srandPick(NICK)+'" '+srandPick(LAST)}while(usedNames.has(name));usedNames.add(name);
+    const sp=srandPick(specPool);
+    generated[eid]={id:eid,name,role:'civilian',sub:sp,spec:sp,nerve:20+srandInt(0,40),suspicion:25+srandInt(0,35),
+      hp:2+srandInt(0,3),maxHp:5,salary:80+srandInt(0,150),reqRep:srandInt(0,300),
+      block:srandPick(['row_a','row_b','row_c','row_d','docks_a','docks_b']),personality:srandPick(PERS),
+      desc:srandPick(['Looking for work.','Has a particular set of skills.','Down on their luck.','Ambitious.'])};
+  }
+  return generated;
+}
+
+// ─── BLOCKS & DISTRICTS (DYNAMIC) ────────────────────────
 const BLK={};const DIST={};
 function mkBlock(id,name,did,pop,cops,ctrl={}){BLK[id]={id,name,did,pop,cops,ctrl:{player:0,kostarov:0,dragos:0,vega:0,...ctrl,neutral:100},crew:[],income:0};
   const b=BLK[id];const claimed=b.ctrl.player+b.ctrl.kostarov+b.ctrl.dragos+b.ctrl.vega;b.ctrl.neutral=Math.max(0,100-claimed)}
 function mkDist(id,name,desc,blocks){DIST[id]={id,name,desc,blocks}}
 
-mkDist('the_row','The Row','Slums. Street-level crime. Where you start.',['row_a','row_b','row_c','row_d']);
-mkDist('the_docks','The Docks','Industrial smuggling hub. Warehouses and shipping.',['docks_a','docks_b','docks_c','docks_d']);
-mkDist('midtown','Midtown','Commercial district. Corporate fronts, white-collar crime.',['mid_a','mid_b','mid_c','mid_d']);
-mkDist('old_quarter','Old Quarter','Historic. Black markets and hidden tunnels.',['oq_a','oq_b','oq_c','oq_d']);
-mkDist('uptown','Uptown','Wealthy residential. High-risk, high-reward.',['up_a','up_b','up_c','up_d']);
-mkDist('the_strip','The Strip','Nightlife and entertainment. Gambling dens.',['strip_a','strip_b','strip_c','strip_d']);
+function buildWorld(){
+  // Clear existing
+  for(const k in BLK)delete BLK[k];for(const k in DIST)delete DIST[k];
 
-mkBlock('row_a','The Row - Block A','the_row',40,10);
-mkBlock('row_b','The Row - Block B','the_row',55,20);
-mkBlock('row_c','The Row - Block C','the_row',45,15);
-mkBlock('row_d','The Row - Block D','the_row',35,10);
-mkBlock('docks_a','The Docks - Block A','the_docks',20,5);
-mkBlock('docks_b','The Docks - Block B','the_docks',25,10);
-mkBlock('docks_c','The Docks - Block C','the_docks',15,5);
-mkBlock('docks_d','The Docks - Block D','the_docks',30,15);
-mkBlock('mid_a','Midtown - Block A','midtown',70,40,{dragos:40});
-mkBlock('mid_b','Midtown - Block B','midtown',65,35,{dragos:35});
-mkBlock('mid_c','Midtown - Block C','midtown',60,30);
-mkBlock('mid_d','Midtown - Block D','midtown',75,45,{dragos:50});
-mkBlock('oq_a','Old Quarter - Block A','old_quarter',35,10,{kostarov:60});
-mkBlock('oq_b','Old Quarter - Block B','old_quarter',40,15,{kostarov:50});
-mkBlock('oq_c','Old Quarter - Block C','old_quarter',30,10,{kostarov:45});
-mkBlock('oq_d','Old Quarter - Block D','old_quarter',45,20,{kostarov:55});
-mkBlock('up_a','Uptown - Block A','uptown',50,50);
-mkBlock('up_b','Uptown - Block B','uptown',55,45);
-mkBlock('up_c','Uptown - Block C','uptown',45,40);
-mkBlock('up_d','Uptown - Block D','uptown',60,55);
-mkBlock('strip_a','The Strip - Block A','the_strip',60,25,{vega:45});
-mkBlock('strip_b','The Strip - Block B','the_strip',70,30,{vega:55});
-mkBlock('strip_c','The Strip - Block C','the_strip',55,20,{vega:40});
-mkBlock('strip_d','The Strip - Block D','the_strip',65,35,{vega:50});
+  // District descriptions vary by seed
+  const rowDescs=['Slums. Street-level crime. Where you start.','Rough neighborhood. Low rent, high crime.','The gutter of the city. Everyone starts here.'];
+  const dockDescs=['Industrial smuggling hub.','Shipping containers and shady warehouses.','Where goods come in — legal and otherwise.'];
+  const midDescs=['Commercial district. White-collar crime.','Business suits and dirty deals.','Corporate fronts hide the real money.'];
+  const oqDescs=['Historic. Black markets and hidden tunnels.','Old money, old grudges.','Ancient streets with modern secrets.'];
+  const upDescs=['Wealthy residential. High-risk, high-reward.','Mansions and corrupt politicians.','The rich don\'t call the cops — they ARE the cops.'];
+  const stripDescs=['Nightlife and entertainment.','Neon lights and dirty money.','Where the city comes to play — and pay.'];
+
+  mkDist('the_row','The Row',srandPick(rowDescs),['row_a','row_b','row_c','row_d']);
+  mkDist('the_docks','The Docks',srandPick(dockDescs),['docks_a','docks_b','docks_c','docks_d']);
+  mkDist('midtown','Midtown',srandPick(midDescs),['mid_a','mid_b','mid_c','mid_d']);
+  mkDist('old_quarter','Old Quarter',srandPick(oqDescs),['oq_a','oq_b','oq_c','oq_d']);
+  mkDist('uptown','Uptown',srandPick(upDescs),['up_a','up_b','up_c','up_d']);
+  mkDist('the_strip','The Strip',srandPick(stripDescs),['strip_a','strip_b','strip_c','strip_d']);
+
+  // Randomized block values — population and cop presence vary per seed
+  const blkDefs=[
+    ['row_a','The Row - Block A','the_row'],['row_b','The Row - Block B','the_row'],['row_c','The Row - Block C','the_row'],['row_d','The Row - Block D','the_row'],
+    ['docks_a','The Docks - Block A','the_docks'],['docks_b','The Docks - Block B','the_docks'],['docks_c','The Docks - Block C','the_docks'],['docks_d','The Docks - Block D','the_docks'],
+    ['mid_a','Midtown - Block A','midtown'],['mid_b','Midtown - Block B','midtown'],['mid_c','Midtown - Block C','midtown'],['mid_d','Midtown - Block D','midtown'],
+    ['oq_a','Old Quarter - Block A','old_quarter'],['oq_b','Old Quarter - Block B','old_quarter'],['oq_c','Old Quarter - Block C','old_quarter'],['oq_d','Old Quarter - Block D','old_quarter'],
+    ['up_a','Uptown - Block A','uptown'],['up_b','Uptown - Block B','uptown'],['up_c','Uptown - Block C','uptown'],['up_d','Uptown - Block D','uptown'],
+    ['strip_a','The Strip - Block A','the_strip'],['strip_b','The Strip - Block B','the_strip'],['strip_c','The Strip - Block C','the_strip'],['strip_d','The Strip - Block D','the_strip'],
+  ];
+  // Base values per district type
+  const distBases={the_row:{pop:30,cops:8},the_docks:{pop:18,cops:4},midtown:{pop:60,cops:35},old_quarter:{pop:30,cops:8},uptown:{pop:45,cops:40},the_strip:{pop:55,cops:22}};
+  // Rival control varies each seed
+  const rivalVar=srandInt(0,20);// How much extra control rivals start with
+
+  for(const[id,name,did]of blkDefs){
+    const base=distBases[did];
+    const pop=base.pop+srandInt(-10,15);
+    const cops=Math.max(2,base.cops+srandInt(-8,12));
+    const ctrl={};
+    // Rival starting control — randomized per seed
+    if(did==='midtown'){ctrl.dragos=25+srandInt(0,30+rivalVar)}
+    else if(did==='old_quarter'){ctrl.kostarov=35+srandInt(0,25+rivalVar)}
+    else if(did==='the_strip'){ctrl.vega=30+srandInt(0,25+rivalVar)}
+    // Small random rival presence in other districts
+    else if(did!=='the_row'&&srand()>.6){const rv=srandPick(['kostarov','dragos','vega']);ctrl[rv]=srandInt(5,20)}
+    mkBlock(id,name,did,pop,cops,ctrl);
+  }
+}
+
+function applyScenario(scn){
+  const p=G.p;
+  switch(scn){
+    case 0:// Fresh Start — default, nothing extra
+      break;
+    case 1:// Connected — start with cash and a contact favor
+      p.cash.dirty=500;
+      p.contacts.push('rico_supplier');
+      const fence=G.npcs.marcus_fence;if(fence){fence.loyalty=55;fence.trust=60}
+      addLog('You called in a favor. Marcus owes you one. $500 in your pocket.','s');
+      break;
+    case 2:// Heat Wave — start hot
+      p.heat=30;
+      addHeat(0,'start');// Trigger tier effects
+      addLog('You just got out and the cops already know you\'re back. Heat is ON.','d');
+      // Extra cops in starting blocks
+      ['row_a','row_b','row_c','row_d'].forEach(b=>{BLK[b].cops+=15});
+      break;
+    case 3:// Rival Territory — rivals own everything
+      for(const b of Object.values(BLK)){
+        for(const rid of['kostarov','dragos','vega']){
+          if(b.ctrl[rid]>0)b.ctrl[rid]=Math.min(90,b.ctrl[rid]+25);
+        }
+        recalc(b);
+      }
+      Object.values(G.rivals).forEach(r=>{r.str+=15;r.hostility+=10});
+      addLog('The city is locked down by rival gangs. Every block is a fight.','d');
+      break;
+    case 4:// War Zone — everyone hostile, fighting each other
+      Object.values(G.rivals).forEach(r=>{r.hostility=60+srandInt(0,30);r.phase='provoke';r.timer=srandInt(3,10);r.str+=srandInt(-10,10)});
+      // Rivals fighting each other — random damage to their territory
+      for(const b of Object.values(BLK)){
+        for(const rid of['kostarov','dragos','vega']){
+          if(b.ctrl[rid]>20)b.ctrl[rid]=Math.max(10,b.ctrl[rid]-srandInt(5,20));
+        }
+        recalc(b);
+      }
+      p.cash.dirty=200;// Small starting bonus — you'll need it
+      addLog('The city is a war zone. All three gangs are at each other\'s throats. Opportunity in chaos.','w');
+      break;
+  }
+}
 
 // ─── GAME STATE ───────────────────────────────────────────
 const G={
@@ -467,11 +610,27 @@ const G={
 
   init(){
     this.p=new Player();
-    for(const[k,t]of Object.entries(NPCS))this.npcs[t.id]=new NPC(t);
-    ['row_a','row_b','row_c','row_d','docks_a','oq_a','strip_a'].forEach(b=>{for(let i=0;i<3;i++){const c=makeCiv(b);this.npcs[c.id]=c}});
+    // Seed the world
+    const seedVal=document.getElementById('seed-input')?.value;
+    const numSeed=seedVal?[...seedVal].reduce((s,c)=>s*31+c.charCodeAt(0),0):Date.now();
+    seedRng(Math.abs(numSeed));this.worldSeed=numSeed;
+    // Build randomized world
+    buildWorld();
+    // Generate randomized NPCs
+    const genNPCs=generateNPCNames();
+    this.npcs={};
+    for(const[k,t]of Object.entries(genNPCs))this.npcs[t.id]=new NPC(t);
+    // Spawn random civilians — count varies by seed
+    const civBlocks=['row_a','row_b','row_c','row_d','docks_a','oq_a','strip_a'];
+    for(const b of civBlocks){const count=2+srandInt(0,3);for(let i=0;i<count;i++){const c=makeCiv(b);this.npcs[c.id]=c}}
+    // Randomize rival strengths per seed
+    for(const r of Object.values(this.rivals)){r.str=40+srandInt(0,40);r.hostility=10+srandInt(0,25);r.timer=20+srandInt(0,25)}
+    // Randomize starting time
+    this.time.hr=18+srandInt(0,6);if(this.time.hr>=24)this.time.hr-=24;
     this.genJobs();
     this.log=[];this._investigation=null;
     addLog('You step onto the rain-slicked streets of The Row. No crew. No cash. No rep. Time to change that.','st');
+    addLog(`World seed: ${numSeed}. Every playthrough is different.`,'i');
     setTimeout(()=>{if(typeof initHiddenInfo==='function')initHiddenInfo()},0);
   },
 
@@ -2951,6 +3110,7 @@ function startGame(loadSave,godMode=false){
   genWorld();
 
   if(loadSave){G.load()}
+  else{applyScenario(selectedScenario)}
   if(godMode){applyGodMode()}
 
   const startC=blockCenter(G.p.block||'row_a');PW.x=startC.x;PW.y=startC.y;
