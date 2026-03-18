@@ -183,6 +183,7 @@ body.on-home{overflow:auto}
 
 /* Forecast & Strategy */
 .forecast{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0;font-size:11px;line-height:1.5}
+#fc-preview{min-height:0;transition:min-height .15s}
 .fc-row{margin-bottom:3px}.fc-label{font-weight:700;margin-right:4px}
 .strat-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;cursor:pointer;transition:.15s}
 .strat-card:hover{border-color:var(--accent);background:var(--hover)}
@@ -2705,7 +2706,7 @@ function showNPC(id){
     <div class="acts">`;
   for(const a of acts){
     const rdot=a.id==='talk'?'low':risk.level;
-    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')" onmouseenter="showForecast('${a.id}','${n.id}')" onmouseleave="hideForecast()"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
+    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')" onmouseenter="showForecastSafe('${a.id}','${n.id}')" onmouseleave="hideForecastSafe()"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
     else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
   }
   // Revenge button — if this is the traitor
@@ -2726,9 +2727,8 @@ function showResult(npcId,r){
   let chg='';
   if(r.chg){chg='<div class="chg">';for(const[k,v]of Object.entries(r.chg)){
     const n=typeof v==='string'&&v.startsWith('-');chg+=`<span class="${n?'chg-n':'chg-p'}">${k}: ${v}</span>`}chg+='</div>'}
-  el.innerHTML=`<div class="res ${cls}"><p>${r.text.replace(/\n/g,'<br>')}</p>${chg}</div>`;
-  // Refresh NPC actions
-  const n=G.npcs[npcId];if(n)setTimeout(()=>showNPC(npcId),150);
+  el.innerHTML=`<div class="res ${cls}"><p>${r.text.replace(/\n/g,'<br>')}</p>${chg}<button class="abtn abtn-s" style="margin-top:8px" onclick="showNPC('${npcId}')">Continue</button></div>`;
+  // Don't auto-rebuild — let the player click Continue to refresh stats
   addLog(r.text.split('\n')[0],r.ok?'s':'w');
 }
 function closeNPC(){document.getElementById('apanel').innerHTML='';G.paused=false}
@@ -2740,8 +2740,26 @@ function renderForecast_inline(f){
   if(f.long?.length)h+=`<div class="fc-row"><span class="fc-label" style="color:var(--accent)">Long-term:</span> ${f.long.filter(Boolean).join(' · ')}</div>`;
   return h+'</div>';
 }
-function showForecast(action,npcId){const el=document.getElementById('fc-preview');if(!el)return;const n=G.npcs[npcId];if(!n)return;el.innerHTML=renderForecast(action,n)}
-function hideForecast(){const el=document.getElementById('fc-preview');if(el)el.innerHTML=''}
+// Debounced forecast to prevent hover flicker
+let _fcTimer=null,_fcShowing='';
+function showForecastSafe(action,npcId){
+  const key=action+'_'+npcId;
+  if(_fcShowing===key)return;// Already showing this one
+  clearTimeout(_fcTimer);
+  _fcTimer=setTimeout(()=>{
+    const el=document.getElementById('fc-preview');if(!el)return;
+    const n=G.npcs[npcId];if(!n)return;
+    el.innerHTML=renderForecast(action,n);
+    _fcShowing=key;
+  },120);// Small delay prevents flicker
+}
+function hideForecastSafe(){
+  clearTimeout(_fcTimer);
+  _fcTimer=setTimeout(()=>{
+    const el=document.getElementById('fc-preview');if(el)el.innerHTML='';
+    _fcShowing='';
+  },200);// Delay so moving between buttons doesn't flash
+}
 
 // ── JOBS ──────────────────────────────────────────────────
 function renderJobs(c){
