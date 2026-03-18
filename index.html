@@ -140,11 +140,43 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
 .foot{grid-column:1/-1;background:var(--panel);padding:6px 16px;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--dim);border-top:1px solid var(--border)}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--dim)}
 
-/* Random Events Modal */
-.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100}
-.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;padding:20px;max-width:420px;width:90%}
-.modal h3{color:var(--accent);margin-bottom:10px}.modal p{margin-bottom:12px;font-size:13px}
-.modal .acts{margin-top:10px}
+/* Personality tags */
+.ptag{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.ptag-greedy{background:rgba(255,215,0,.15);color:#ffd700}.ptag-paranoid{background:rgba(255,100,100,.12);color:#ff8888}
+.ptag-loyal{background:rgba(68,204,102,.12);color:var(--green)}.ptag-aggressive{background:rgba(255,68,68,.15);color:var(--red)}
+.ptag-cowardly{background:rgba(150,150,200,.12);color:#aab}.ptag-cunning{background:rgba(204,136,255,.15);color:var(--purple)}
+.ptag-generous{background:rgba(100,200,255,.12);color:#88ccff}.ptag-volatile{background:rgba(255,165,0,.15);color:var(--orange)}
+
+/* Risk dots */
+.rdot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.rdot-low{background:var(--green)}.rdot-med{background:var(--orange)}.rdot-high{background:var(--red)}.rdot-extreme{background:#8b0000;box-shadow:0 0 4px #ff0000}
+.risk-tip{font-size:10px;color:var(--dim);margin-top:2px}
+
+/* Wanted */
+.wanted-tag{background:var(--red);color:#fff;font-size:10px;padding:2px 8px;border-radius:3px;font-weight:700;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* Modal */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px)}
+.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;padding:20px;max-width:450px;width:92%}
+.modal h3{color:var(--accent);margin-bottom:10px;font-size:15px}.modal p{margin-bottom:12px;font-size:13px;line-height:1.5}
+.modal .acts{margin-top:12px}.modal .abtn{margin-bottom:4px}
+.modal-sub{font-size:11px;color:var(--dim);margin-top:4px}
+
+/* Milestones & Notoriety */
+.mstone{padding:8px;background:var(--card);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.mstone.done{border-left:3px solid var(--gold);opacity:.7}
+.mstone-name{font-weight:600;font-size:12px}.mstone-desc{font-size:11px;color:var(--dim)}
+.mstone-reward{font-size:10px;color:var(--gold);text-align:right}
+.nbar{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.nbar-name{min-width:70px;color:var(--dim)}.nbar-track{flex:1;height:6px;background:#1a1a2a;border-radius:3px;overflow:hidden;position:relative}
+.nbar-fill{height:100%;border-radius:3px;transition:width .3s}
+.nbar-val{font-family:'JetBrains Mono',monospace;min-width:30px;text-align:right}
+.perk{font-size:11px;padding:3px 8px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.2);border-radius:3px;margin:2px;display:inline-block;color:var(--gold)}
+.perk.locked{opacity:.35;border-color:var(--border);color:var(--dim)}
+
+/* Locked districts */
+.nbtn.locked{opacity:.4;cursor:not-allowed;border-style:dashed}
 
 @media(max-width:768px){.game{grid-template-columns:1fr}.logbar{max-height:200px}.hud{gap:8px}}
 </style>
@@ -155,7 +187,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
     <div class="hg"><span class="hl">Cash</span><span class="hv hv-cash" id="h-cash">$0</span></div>
     <div class="hg"><span class="hl">Heat</span><span class="hv hv-heat" id="h-heat">0</span>
       <div class="heat-bar"><div class="heat-fill" id="h-hbar" style="width:0%"></div></div>
-      <span class="tier-tag" id="h-htier">Cold</span></div>
+      <span class="tier-tag" id="h-htier">Cold</span><span id="h-wanted"></span></div>
     <div class="hg"><span class="hl">Rep</span><span class="hv hv-rep" id="h-rep">0</span><span class="tier-tag" id="h-rtitle">Street Rat</span></div>
     <div class="hg"><span class="hl">HP</span><span class="hv hv-hp" id="h-hp">5/5</span></div>
     <div class="hg"><span class="hl">Crew</span><span class="hv" id="h-crew">0/1</span></div>
@@ -182,7 +214,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-
     <div id="content"></div>
   </div>
   <div class="logbar"><div class="loghd">Activity Log</div><div id="log"></div></div>
-  <div class="foot"><span>Crime Empire v0.2</span><span>|</span><span>100% Free — Zero Dependencies</span></div>
+  <div class="foot"><span>Crime Empire v0.3</span><span>|</span><span>100% Free — Zero Dependencies</span></div>
 </div>
 
 <script>
@@ -201,6 +233,46 @@ const RNG={
   wpick(w){const e=Object.entries(w).filter(([,v])=>v>0),t=e.reduce((s,[,v])=>s+v,0);let r=Math.random()*t;for(const[o,v]of e){r-=v;if(r<=0)return o}return e[e.length-1][0]},
   skill(lvl,diff){const c=Math.max(10,Math.min(95,40+lvl*8-diff*.4)),r=Math.random()*100;return{ok:r<c,chance:Math.round(c),roll:Math.round(r)}}
 };
+
+// ─── PERSONALITIES ────────────────────────────────────────
+const PERS=['greedy','paranoid','loyal','aggressive','cowardly','cunning','generous','volatile'];
+const PERS_W={greedy:15,paranoid:12,loyal:12,aggressive:15,cowardly:12,cunning:12,generous:10,volatile:12};
+const PERS_DESC={greedy:'Demands more money',paranoid:'Hard to deceive, reports faster',loyal:'Steady, resists flipping',aggressive:'Fights back, takes no crap',cowardly:'Scares easily, may flee',cunning:'Tricky — may double-cross you',generous:'Gives tips and discounts',volatile:'Unpredictable mood swings'};
+function assignPers(){return RNG.wpick(PERS_W)}
+
+// ─── TIER UNLOCKS & DISTRICT GATES ────────────────────────
+const DIST_REQ={the_row:1,the_docks:2,old_quarter:3,midtown:4,the_strip:5,uptown:6};
+const TIER_INFO={1:'Talk, Threaten civilians, basic jobs',2:'+Shakedown, +Collection jobs, +Docks access',3:'+Heist jobs, +Old Quarter, +recruit muscle',4:'+Buy fronts, +Midtown, +crew side-jobs',5:'+The Strip, +rival negotiations',6:'+Uptown, +hostile takeovers, -20% heat gain',7:'All abilities, cops buyable permanently'};
+
+// ─── MILESTONES ──────────────────────────────────────────
+const MILESTONES=[
+  {id:'first_job',name:'First Blood',desc:'Complete your first job',check:()=>G.doneJobs.length>=1,reward:'$200 bonus',fx:()=>G.p.addDirty(200)},
+  {id:'racket3',name:'Protection Racket',desc:'Run 3 active rackets',check:()=>G.p.rackets.filter(r=>r.active).length>=3,reward:'+5% racket income',fx:()=>{G.perkRacketBonus=(G.perkRacketBonus||0)+5}},
+  {id:'crew3',name:'Squad Up',desc:'Recruit 3 crew members',check:()=>G.p.crew.length>=3,reward:'+1 crew slot',fx:()=>{G.p.crewSlots++}},
+  {id:'terr5',name:'Block Captain',desc:'Control 5 blocks at 50%+',check:()=>Object.values(BLK).filter(b=>b.ctrl.player>=50).length>=5,reward:'-3 heat/day decay boost',fx:()=>{G.perkDecayBoost=(G.perkDecayBoost||0)+3}},
+  {id:'survive_arrest',name:'Jailbird',desc:'Get arrested and survive',check:()=>G.p.arrests>=1,reward:'+1 max HP',fx:()=>{G.p.maxHp++;G.p.hp++}},
+  {id:'rich',name:'Made Man',desc:'Hold $10,000 total',check:()=>G.p.total>=10000,reward:'Unlock fronts at Tier 3',fx:()=>{G.perkEarlyFronts=true}},
+  {id:'jobs20',name:'Career Criminal',desc:'Complete 20 jobs',check:()=>G.doneJobs.length>=20,reward:'+15% job pay',fx:()=>{G.perkJobBonus=(G.perkJobBonus||0)+15}},
+  {id:'betrayal',name:'Trust No One',desc:'Survive a crew betrayal',check:()=>G.betrayalSurvived,reward:'Betrayal timer 14→21 days',fx:()=>{G.perkBetrayalDelay=21}},
+];
+
+// ─── NOTORIETY ───────────────────────────────────────────
+const NOT_PERKS=[
+  {cat:'violent',at:25,name:'Feared',desc:'NPCs start +5 fear',id:'feared'},
+  {cat:'violent',at:50,name:'Brutal',desc:'Threaten +10% success',id:'brutal'},
+  {cat:'violent',at:100,name:'Warlord',desc:'Crew combat +20%',id:'warlord'},
+  {cat:'cunning',at:25,name:'Silver Tongue',desc:'Bribe costs -15%',id:'silver'},
+  {cat:'cunning',at:50,name:'Manipulator',desc:'Counter-offers favor you',id:'manip'},
+  {cat:'cunning',at:100,name:'Puppet Master',desc:'Can flip rival NPCs',id:'puppet'},
+  {cat:'business',at:25,name:'Entrepreneur',desc:'Front income +15%',id:'entrep'},
+  {cat:'business',at:50,name:'Mogul',desc:'Racket pay +20%',id:'mogul'},
+  {cat:'business',at:100,name:'Tycoon',desc:'Unlock Casino front',id:'tycoon'},
+  {cat:'shadow',at:25,name:'Ghost',desc:'Heat gain -10%',id:'ghost'},
+  {cat:'shadow',at:50,name:'Phantom',desc:'Night heat penalty removed',id:'phantom'},
+  {cat:'shadow',at:100,name:'Invisible',desc:'Wanted intensity capped',id:'invisible'},
+];
+function hasPerk(id){return NOT_PERKS.some(p=>p.id===id&&G.notoriety[p.cat]>=p.at)}
+function activePerks(){return NOT_PERKS.filter(p=>G.notoriety[p.cat]>=p.at)}
 
 // ─── DATA MODELS ──────────────────────────────────────────
 class Player{
@@ -237,22 +309,23 @@ class NPC{
     this.salary=d.salary??100;this.spec=d.spec||null;
     this.reqRep=d.reqRep??0;this.betrayDays=0;this.snitch=false;
     this.worksFor=d.worksFor||'none';this.desc=d.desc||'';this.lastTalk=0;
+    this.personality=d.personality||assignPers();
   }
 }
 
 // ─── NPC TEMPLATES ────────────────────────────────────────
 const NPCS={
-  marcus_fence:{id:'marcus_fence',name:'Marcus "The Fence" Delgado',role:'contact',sub:'fence',loyalty:35,trust:40,nerve:55,suspicion:60,hp:4,maxHp:4,block:'row_a',desc:'Runs the pawn shop. Buys stolen goods, no questions asked.'},
-  rico_supplier:{id:'rico_supplier',name:'Rico Vasquez',role:'contact',sub:'supplier',loyalty:25,trust:35,nerve:60,suspicion:55,hp:4,maxHp:4,block:'row_b',desc:'Your connect for product. Reliable but all business.'},
-  elena_forger:{id:'elena_forger',name:'Elena "Ink" Petrov',role:'contact',sub:'forger',loyalty:20,trust:45,nerve:35,suspicion:70,hp:2,maxHp:2,reqRep:50,block:'row_c',desc:'Forges documents, cleans records. Not cheap.'},
-  dex_lookout:{id:'dex_lookout',name:'Dex',role:'civilian',sub:'lookout',loyalty:30,nerve:30,suspicion:35,hp:3,maxHp:3,salary:100,spec:'lookout',block:'row_a',desc:'Washes dishes at Rusty\'s. Desperate for a way out.'},
-  vince_muscle:{id:'vince_muscle',name:'Vince "Knuckles" Tran',role:'civilian',sub:'muscle',loyalty:20,nerve:70,suspicion:25,hp:6,maxHp:6,salary:200,spec:'muscle',reqRep:100,block:'row_b',desc:'Ex-boxer. Hits hard, doesn\'t ask questions.'},
-  sara_driver:{id:'sara_driver',name:'Sara "Wheels" Okafor',role:'civilian',sub:'driver',loyalty:35,nerve:40,suspicion:45,hp:3,maxHp:3,salary:150,spec:'driver',reqRep:200,block:'docks_a',desc:'Drives like the devil. Knows every back road.'},
-  jimmy_debtor:{id:'jimmy_debtor',name:'Jimmy "Two-Shoes" Malone',role:'civilian',nerve:55,suspicion:30,hp:3,maxHp:3,block:'row_b',desc:'Owes money to the wrong people. Has a temper.'},
-  chen_shop:{id:'chen_shop',name:'Mr. Chen',role:'civilian',nerve:45,suspicion:40,hp:2,maxHp:2,block:'row_b',desc:'Corner store owner on Block B. Stubborn but honest.'},
-  officer_daniels:{id:'officer_daniels',name:'Officer Daniels',role:'cop',sub:'beat_cop',loyalty:0,nerve:50,suspicion:60,hp:5,maxHp:5,block:'row_b',desc:'Patrols The Row. Could be useful for the right price.'},
-  detective_morrison:{id:'detective_morrison',name:'Detective Morrison',role:'cop',sub:'detective',loyalty:0,nerve:70,suspicion:80,hp:5,maxHp:5,reqRep:500,block:'midtown_a',desc:'Controls investigations. Expensive to buy.'},
-  viktor_enforcer:{id:'viktor_enforcer',name:'Viktor Kostarov',role:'rival',sub:'enforcer',loyalty:0,nerve:80,suspicion:75,hp:7,maxHp:7,block:'oldquarter_a',district:'old_quarter',worksFor:'kostarov',desc:'Enforcer for the Kostarov Crew. Cold and dangerous.'},
+  marcus_fence:{id:'marcus_fence',name:'Marcus "The Fence" Delgado',role:'contact',sub:'fence',loyalty:35,trust:40,nerve:55,suspicion:60,hp:4,maxHp:4,block:'row_a',personality:'greedy',desc:'Runs the pawn shop. Buys stolen goods, no questions asked.'},
+  rico_supplier:{id:'rico_supplier',name:'Rico Vasquez',role:'contact',sub:'supplier',loyalty:25,trust:35,nerve:60,suspicion:55,hp:4,maxHp:4,block:'row_b',personality:'cunning',desc:'Your connect for product. Reliable but all business.'},
+  elena_forger:{id:'elena_forger',name:'Elena "Ink" Petrov',role:'contact',sub:'forger',loyalty:20,trust:45,nerve:35,suspicion:70,hp:2,maxHp:2,reqRep:50,block:'row_c',personality:'paranoid',desc:'Forges documents, cleans records. Not cheap.'},
+  dex_lookout:{id:'dex_lookout',name:'Dex',role:'civilian',sub:'lookout',loyalty:30,nerve:30,suspicion:35,hp:3,maxHp:3,salary:100,spec:'lookout',block:'row_a',personality:'cowardly',desc:'Washes dishes at Rusty\'s. Desperate for a way out.'},
+  vince_muscle:{id:'vince_muscle',name:'Vince "Knuckles" Tran',role:'civilian',sub:'muscle',loyalty:20,nerve:70,suspicion:25,hp:6,maxHp:6,salary:200,spec:'muscle',reqRep:100,block:'row_b',personality:'aggressive',desc:'Ex-boxer. Hits hard, doesn\'t ask questions.'},
+  sara_driver:{id:'sara_driver',name:'Sara "Wheels" Okafor',role:'civilian',sub:'driver',loyalty:35,nerve:40,suspicion:45,hp:3,maxHp:3,salary:150,spec:'driver',reqRep:200,block:'docks_a',personality:'loyal',desc:'Drives like the devil. Knows every back road.'},
+  jimmy_debtor:{id:'jimmy_debtor',name:'Jimmy "Two-Shoes" Malone',role:'civilian',nerve:55,suspicion:30,hp:3,maxHp:3,block:'row_b',personality:'aggressive',desc:'Owes money to the wrong people. Has a temper.'},
+  chen_shop:{id:'chen_shop',name:'Mr. Chen',role:'civilian',nerve:45,suspicion:40,hp:2,maxHp:2,block:'row_b',personality:'loyal',desc:'Corner store owner on Block B. Stubborn but honest.'},
+  officer_daniels:{id:'officer_daniels',name:'Officer Daniels',role:'cop',sub:'beat_cop',loyalty:0,nerve:50,suspicion:60,hp:5,maxHp:5,block:'row_b',personality:'cunning',desc:'Patrols The Row. Could be useful for the right price.'},
+  detective_morrison:{id:'detective_morrison',name:'Detective Morrison',role:'cop',sub:'detective',loyalty:0,nerve:70,suspicion:80,hp:5,maxHp:5,reqRep:500,block:'mid_a',personality:'paranoid',desc:'Controls investigations. Expensive to buy.'},
+  viktor_enforcer:{id:'viktor_enforcer',name:'Viktor Kostarov',role:'rival',sub:'enforcer',loyalty:0,nerve:80,suspicion:75,hp:7,maxHp:7,block:'oq_a',district:'old_quarter',worksFor:'kostarov',personality:'aggressive',desc:'Enforcer for the Kostarov Crew. Cold and dangerous.'},
 };
 
 const FIRST=['Mike','Tony','Lisa','Angela','Derek','Nina','Carlos','Jade','Ray','Keisha','Omar','Tanya','Hector','Priya','Yuri','Brenda'];
@@ -310,6 +383,15 @@ const G={
     vega:{id:'vega',name:'Vega Cartel',str:55,hostility:10,phase:'passive',timer:35}
   },
   jobs:[],activeJob:null,doneJobs:[],
+  // New systems
+  notoriety:{violent:0,cunning:0,business:0,shadow:0},
+  milestonesDone:{},
+  wanted:{active:false,intensity:0,timer:0},
+  highHeatDays:0,
+  blockActions:{},
+  eventChains:[],
+  perkRacketBonus:0,perkDecayBoost:0,perkJobBonus:0,perkEarlyFronts:false,perkBetrayalDelay:14,
+  betrayalSurvived:false,
 
   init(){
     this.p=new Player();
@@ -324,16 +406,22 @@ const G={
 
   moveTo(blk){
     if(!BLK[blk])return;
-    this.p.block=blk;this.p.district=BLK[blk].did;
+    const did=BLK[blk].did;
+    const req=DIST_REQ[did]||1;
+    if(this.p.tier<req){addLog(`You're not known enough for ${DIST[did].name}. Need ${getTier(TIERS[req-1]?.min||0)?.title||'higher rep'} (Tier ${req}).`,'w');return}
+    this.blockActions={};// Reset consecutive action tracking on move
+    this.p.block=blk;this.p.district=did;
     addLog(`Moved to ${BLK[blk].name}.`,'i');
     render();
-    // Random encounter chance when moving
-    if(RNG.chance(12+this.p.heat*0.2))randomEvent();
+    if(RNG.chance(15+this.p.heat*0.25))randomEvent();
   },
 
   save(){
     try{
-      const d={p:this.p,npcs:this.npcs,time:this.time,rivals:this.rivals,jobs:this.jobs,activeJob:this.activeJob,log:this.log.slice(-30)};
+      const d={p:this.p,npcs:this.npcs,time:this.time,rivals:this.rivals,jobs:this.jobs,activeJob:this.activeJob,log:this.log.slice(-30),
+        notoriety:this.notoriety,milestonesDone:this.milestonesDone,wanted:this.wanted,highHeatDays:this.highHeatDays,
+        perkRacketBonus:this.perkRacketBonus,perkDecayBoost:this.perkDecayBoost,perkJobBonus:this.perkJobBonus,
+        perkEarlyFronts:this.perkEarlyFronts,perkBetrayalDelay:this.perkBetrayalDelay,betrayalSurvived:this.betrayalSurvived};
       for(const[id,b]of Object.entries(BLK))d['b_'+id]=b.ctrl;
       localStorage.setItem('ce_save',JSON.stringify(d));
       addLog('Game saved.','s');
@@ -356,6 +444,10 @@ const G={
       if(d.jobs)this.jobs=d.jobs;
       if(d.activeJob)this.activeJob=d.activeJob;
       if(d.log)this.log=d.log;
+      if(d.notoriety)this.notoriety=d.notoriety;
+      if(d.milestonesDone)this.milestonesDone=d.milestonesDone;
+      if(d.wanted)this.wanted=d.wanted;
+      ['highHeatDays','perkRacketBonus','perkDecayBoost','perkJobBonus','perkEarlyFronts','perkBetrayalDelay','betrayalSurvived'].forEach(k=>{if(d[k]!==undefined)this[k]=d[k]});
       // Restore block control
       for(const[id,b]of Object.entries(BLK)){if(d['b_'+id])b.ctrl=d['b_'+id]}
       addLog('Game loaded!','s');
@@ -442,7 +534,29 @@ function getActions(npc){
     a.push({id:'shakedown',label:'Shakedown',on:true});
   return a;
 }
-function bribeCost(n){return n.role==='cop'?(n.sub==='detective'?1000:200):n.role==='contact'?100:50}
+function bribeCost(n){
+  let c=n.role==='cop'?(n.sub.includes('detective')?1000:200):n.role==='contact'?100:50;
+  if(n.personality==='greedy')c=Math.round(c*1.5);
+  if(n.personality==='generous')c=Math.round(c*0.6);
+  if(hasPerk('silver'))c=Math.round(c*0.85);
+  return c;
+}
+// Risk calculator: time-of-day, consecutive actions, cop presence
+function calcRisk(action,npc){
+  const p=G.p,blk=BLK[p.block],t=G.time;
+  const isNight=t.hr>=18||t.hr<6;const isLate=t.hr>=0&&t.hr<6;
+  let payMod=1,heatMod=1,tip=[];
+  if(isLate){payMod=1.6;heatMod=hasPerk('phantom')?1:2;tip.push('Late night: +60% pay'+(hasPerk('phantom')?', heat penalty removed':',+100% heat'))}
+  else if(isNight){payMod=1.3;heatMod=hasPerk('phantom')?1:1.5;tip.push('Night: +30% pay'+(hasPerk('phantom')?'':',+50% heat'))}
+  const consec=G.blockActions[p.block]||0;
+  if(consec>0){heatMod+=consec*0.15;tip.push(`${consec} prior actions here: +${Math.round(consec*15)}% heat`)}
+  if(blk.cops>30)tip.push(`High cop presence: ${blk.cops}%`);
+  if(p.heat>40)tip.push(`Heat is ${getHTier(p.heat).n}`);
+  if(hasPerk('ghost'))heatMod*=0.9;
+  if(p.tier>=6)heatMod*=0.8;// Crime Lord perk
+  const level=heatMod>2?'extreme':heatMod>1.5?'high':heatMod>1?'med':'low';
+  return{payMod,heatMod,level,tip:tip.join(' | ')||'Low risk'};
+}
 function recLock(n){const p=G.p;if(p.crew.length>=p.crewSlots)return`Crew full (${p.crew.length}/${p.crewSlots})`;if(p.rep<(n.reqRep||0))return`Need Rep ${n.reqRep}`;return'Need loyalty 20+ or fear 50+'}
 
 function doAction(id,npcId){
@@ -465,12 +579,14 @@ function doAction(id,npcId){
 
 // ── TALK ──────────────────────────────────────────────────
 function actTalk(n){
+  G.notoriety.cunning++;
   if(n.fear>60){n.loyalty=Math.min(100,n.loyalty+1);return{ok:true,text:`${n.name} is too scared to talk freely. They mutter something useless.`,chg:{loyalty:'+1'}}}
   if(n.loyalty<10&&n.role==='civilian'){return{ok:false,text:`${n.name} ignores you and walks away.`}}
   const lg=n.role==='contact'?5:3;
   n.loyalty=Math.min(100,n.loyalty+lg);
   const lines={
-    civilian:['I keep to myself. But I see things.','This neighborhood ain\'t safe no more.','Heard cops asking questions on Block B.','Some new crew\'s been tagging walls on Block C.'],
+    civilian:['I keep to myself. But I see things.','This neighborhood ain\'t safe no more.','Heard cops asking questions on Block B.','Some new crew\'s been tagging walls on Block C.',
+      'Someone got jumped on Block D last night.','I heard the Kostarov crew is recruiting.','Watch out for that detective — Morrison. He\'s relentless.'],
     contact:{fence:['Got buyers lined up. Bring me quality stuff.','Electronics are hot right now — good margins.','Kostarov\'s been sniffing around. Watch out.'],
       supplier:['Product\'s fresh this week. Premium.','Move volume and I\'ll cut you a better deal.','Cops set up a sting on 4th last week. Stay sharp.'],
       forger:['Need clean papers? I\'m your girl.','For the right price, your record disappears.']},
@@ -481,37 +597,60 @@ function actTalk(n){
   if(n.role==='contact'&&lines.contact[n.sub])line=RNG.pick(lines.contact[n.sub]);
   else if(lines[n.role])line=RNG.pick(Array.isArray(lines[n.role])?lines[n.role]:['...']);
   else line='...';
-  let intel='';
-  if(n.trust>40&&n.role==='contact')intel='\n💡 Intel: '+RNG.pick(['Cops planning a sweep this week.','Rival activity on Block C.','Empty storefront on Block B — good for a front.','Shipment coming to the docks soon.']);
-  return{ok:true,text:`${n.name}: "${line}"${intel}`,chg:{loyalty:'+'+lg}};
+  let intel='',extra='';
+  if(n.trust>40&&n.role==='contact'){
+    const tips=['Cops planning a sweep this week.','Rival activity spotted near your blocks.','Empty storefront on Block B — good for a front.','Shipment coming to the docks soon.','A rival snitch is operating in The Row.','Big buyer looking for product — premium prices.'];
+    let tip=RNG.pick(tips);
+    if(n.personality==='cunning'&&RNG.chance(35))tip='[Seems dubious] '+tip;
+    intel='\n💡 Intel: '+tip;
+  }
+  // Generous NPCs give gifts
+  if(n.personality==='generous'&&RNG.chance(25)){const gift=RNG.int(20,80);G.p.addDirty(gift);extra=`\n${n.name} slips you $${gift}. "Buy yourself something."`}
+  return{ok:true,text:`${n.name}: "${line}"${intel}${extra}`,chg:{loyalty:'+'+lg}};
 }
 
 // ── THREATEN ──────────────────────────────────────────────
 function actThreaten(n){
-  const p=G.p,ck=RNG.skill(p.skills.intimidation,n.nerve);
+  G.notoriety.violent++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
+  const p=G.p,risk=calcRisk('threaten',n);
+  const bonus=hasPerk('brutal')?8:0;
+  const ck=RNG.skill(p.skills.intimidation+bonus,n.nerve);
   const wc=makeWitnesses(p.block,'threaten_'+n.id);
   if(ck.ok){
-    n.fear=Math.min(100,n.fear+20);n.loyalty=Math.max(0,n.loyalty-10);
+    const fearGain=n.personality==='cowardly'?30:20;
+    n.fear=Math.min(100,n.fear+fearGain);n.loyalty=Math.max(0,n.loyalty-10);
     if(n.witness){n.witness=false;n.witCrime=null}
-    const h=3+wc*2;addHeat(h,'threaten');addRep(5,'threaten');
-    return{ok:true,text:`${n.name} backs down, hands shaking. "Okay... I get it." (${ck.chance}% chance, rolled ${ck.roll})`,chg:{fear:'+20',loyalty:'-10',heat:'+'+h,rep:'+5'},wc};
+    const h=Math.round((3+wc*2)*risk.heatMod);addHeat(h,'threaten');addRep(5,'threaten');
+    // Cowardly NPCs may flee the block
+    if(n.personality==='cowardly'&&n.fear>70){const adj=DIST[BLK[n.block]?.did]?.blocks?.filter(b=>b!==n.block);if(adj?.length)n.block=RNG.pick(adj)}
+    return{ok:true,text:`${n.name} backs down, hands shaking. "Okay... I get it." (${ck.chance}% chance, rolled ${ck.roll})`,chg:{fear:'+'+fearGain,loyalty:'-10',heat:'+'+h,rep:'+5'},wc};
   }else{
     n.fear=Math.max(0,n.fear-5);n.nerve=Math.min(100,n.nerve+10);
-    addHeat(8+wc*2,'threaten_fail');addRep(-3,'threaten_fail');
-    const fight=n.nerve>60&&n.hp>2;
-    return{ok:false,text:fight?`${n.name} doesn't flinch. "You don't scare me." They're ready to fight! (${ck.chance}%, rolled ${ck.roll})`:`${n.name} isn't impressed. Word will spread. (${ck.chance}%, rolled ${ck.roll})`,chg:{fear:'-5',nerve:'+10',heat:'+'+(8+wc*2),rep:'-3'},fight};
+    const h2=Math.round((8+wc*2)*risk.heatMod);addHeat(h2,'threaten_fail');addRep(-3,'threaten_fail');
+    const fightThresh=n.personality==='aggressive'?45:n.personality==='cowardly'?75:60;
+    const fight=n.nerve>fightThresh&&n.hp>2;
+    // Aggressive NPCs deal damage on failed threaten
+    let dmgText='';
+    if(n.personality==='aggressive'&&fight){p.hp=Math.max(1,p.hp-1);dmgText=' They land a punch! (-1 HP)'}
+    return{ok:false,text:(fight?`${n.name} doesn't flinch. "You don't scare me."${dmgText} (${ck.chance}%, rolled ${ck.roll})`:`${n.name} isn't impressed. Word will spread. (${ck.chance}%, rolled ${ck.roll})`),chg:{fear:'-5',nerve:'+10',heat:'+'+h2,rep:'-3'},fight};
   }
 }
 
 // ── BRIBE ─────────────────────────────────────────────────
 function actBribe(n){
+  G.notoriety.cunning++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
   const p=G.p,cost=bribeCost(n);
   if(!p.canAfford(cost))return{ok:false,text:`Can't afford the $${cost} bribe.`};
   if(n.sub==='fed'){addHeat(15,'bribe_fed');return{ok:false,text:`${n.name} is a FED. They record your bribe attempt. Heat surges!`,chg:{heat:'+15'}}}
+  // Cunning NPCs might pocket the cash and give nothing
+  if(n.personality==='cunning'&&RNG.chance(18)&&n.role!=='cop'){
+    p.spend(cost);
+    return{ok:false,text:`${n.name} takes your $${cost}... then laughs. "Thanks for the donation." (Cunning personality!)`,chg:{cash:'-'+cost}};
+  }
   p.spend(cost);n.loyalty=Math.min(100,n.loyalty+10);
   if(n.role==='cop'){
-    const hr=n.sub==='detective'?15:8;addHeat(-hr,'bribe_cop');
-    if(!p.contacts.includes(n.id)){p.contacts.push(n.id);n.sub='corrupt_'+n.sub}
+    const hr=n.sub.includes('detective')?15:8;addHeat(-hr,'bribe_cop');
+    if(!p.contacts.includes(n.id)){p.contacts.push(n.id);if(!n.sub.startsWith('corrupt_'))n.sub='corrupt_'+n.sub}
     return{ok:true,text:`${n.name} pockets the cash. "We never had this conversation." (-${hr} heat)`,chg:{cash:'-'+cost,loyalty:'+10',heat:'-'+hr}};
   }
   if(n.witness){n.witness=false;n.witCrime=null;return{ok:true,text:`${n.name} takes the money. "I didn't see anything." Witness silenced.`,chg:{cash:'-'+cost,loyalty:'+10'}}}
@@ -522,6 +661,7 @@ function actBribe(n){
 function actCollect(n){
   const p=G.p,rac=p.rackets.find(r=>r.npcId===n.id&&r.missed>0);
   if(!rac)return{ok:false,text:`${n.name} doesn't owe you anything.`};
+  G.notoriety.violent++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
   const owed=rac.pay*rac.missed,ck=RNG.skill(p.skills.intimidation,n.nerve);
   if(ck.ok){
     p.addDirty(owed);n.fear=Math.min(100,n.fear+15);rac.missed=0;
@@ -542,17 +682,20 @@ function actCollect(n){
 
 // ── DEAL ──────────────────────────────────────────────────
 function actDeal(n){
-  const p=G.p;
+  G.notoriety.business++;G.notoriety.shadow++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
+  const p=G.p,risk=calcRisk('deal',n);
   if(n.sub!=='supplier')return{ok:false,text:`${n.name} isn't a supplier.`};
-  const val=200+p.tier*150+RNG.int(0,200),cost=Math.floor(val*.4),cut=Math.floor(val*.6);
+  const val=200+p.tier*150+RNG.int(0,200),cost=Math.floor(val*.4);
+  let cut=Math.floor(val*.6);
+  // Apply job pay perk
+  if(G.perkJobBonus)cut=Math.round(cut*(1+G.perkJobBonus/100));
+  cut=Math.round(cut*risk.payMod);
   if(!p.canAfford(cost))return{ok:false,text:`Rico: "Minimum buy-in is $${cost}. Come back with cash."`};
 
-  // Sting check
   const stingPct=Math.max(2,Math.min(50,5+p.heat*.5-p.skills.streetSmarts*3));
   if(RNG.chance(stingPct)){
     const detect=RNG.skill(p.skills.streetSmarts,60);
-    if(detect.ok)return{ok:true,text:`Something feels off... you spot an unmarked car. You walk away clean! (Street Smarts saved you — sting was ${Math.round(stingPct)}%)`,chg:{}};
-    // Busted
+    if(detect.ok){G.notoriety.shadow+=2;return{ok:true,text:`Something feels off... you spot an unmarked car. You walk away clean! (Street Smarts saved you — sting was ${Math.round(stingPct)}%)`,chg:{}}}
     const lost=Math.floor(p.cash.dirty*.5);p.cash.dirty-=lost;
     const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
     addHeat(20,'sting');addRep(-20,'arrested');
@@ -561,14 +704,13 @@ function actDeal(n){
     return{ok:false,text:`IT'S A STING! Cops swarm in. Arrested!\nCash seized: $${lost}. Bail: $${bail}. Lost ${days} days. (Sting chance was ${Math.round(stingPct)}%)`,chg:{cash:'-'+(lost+bail),heat:'+20',rep:'-20'}};
   }
 
-  // Clean deal
   const neg=RNG.skill(p.skills.persuasion,n.suspicion);
   let finalCut=cut,extra='';
-  if(neg.ok){finalCut=Math.floor(val*.7);extra=' (Negotiated better cut!)';n.trust=Math.min(100,n.trust+3)}
+  if(neg.ok){finalCut=Math.round(val*.7*risk.payMod);extra=' (Negotiated better cut!)';n.trust=Math.min(100,n.trust+3)}
   p.spend(cost);p.addDirty(finalCut);
   const net=finalCut-cost;
-  addHeat(5,'deal');addRep(8,'deal');n.trust=Math.min(100,n.trust+3);
-  return{ok:true,text:`Deal done.${extra} Invested $${cost}, earned $${finalCut}. Profit: $${net}.`,chg:{cash:'+'+net,heat:'+5',rep:'+8',trust:'+3'}};
+  const h=Math.round(5*risk.heatMod);addHeat(h,'deal');addRep(8,'deal');n.trust=Math.min(100,n.trust+3);
+  return{ok:true,text:`Deal done.${extra} Invested $${cost}, earned $${finalCut}. Profit: $${net}.`,chg:{cash:'+'+net,heat:'+'+h,rep:'+8',trust:'+3'}};
 }
 
 // ── RECRUIT ───────────────────────────────────────────────
@@ -584,7 +726,11 @@ function actRecruit(n){
 
 // ── SHAKEDOWN ─────────────────────────────────────────────
 function actShakedown(n){
-  const p=G.p,demand=200+p.tier*100;
+  G.notoriety.violent++;G.notoriety.business++;G.blockActions[G.p.block]=(G.blockActions[G.p.block]||0)+1;
+  const p=G.p,risk=calcRisk('shakedown',n);
+  let demand=200+p.tier*100;
+  if(hasPerk('mogul'))demand=Math.round(demand*1.2);
+  if(n.personality==='greedy')demand=Math.round(demand*1.2);
   const persCheck=RNG.skill(p.skills.persuasion,n.suspicion);
   const intCheck=RNG.skill(p.skills.intimidation,n.nerve);
 
@@ -605,7 +751,17 @@ function actShakedown(n){
   }
   n.nerve=Math.min(100,n.nerve+10);addRep(-3,'shakedown_fail');
   let extra='';
-  if(RNG.chance(30)){addHeat(8,'shakedown_report');extra='\nThey called the cops after you left.';}
+  if(RNG.chance(30)){addHeat(Math.round(8*risk.heatMod),'shakedown_report');extra='\nThey called the cops after you left.';}
+  // Counter-offer: NPC proposes lower rate
+  if(RNG.chance(40)&&!extra){
+    const counter=Math.floor(demand*(.4+Math.random()*.2));
+    n.fear=Math.min(100,n.fear+5);
+    p.rackets.push({npcId:n.id,pay:counter,active:true,missed:0,block:p.block});
+    addRep(5,'racket_counter');
+    return{ok:true,partial:true,text:`${n.name}: "Fine... $${counter}/week. That's my final offer." Counter-offer accepted. (Pers: ${persCheck.chance}%, Intim: ${intCheck.chance}%)`,chg:{racket:'+$'+counter+'/wk',rep:'+5'}};
+  }
+  // Aggressive NPCs deal damage
+  if(n.personality==='aggressive'){G.p.hp=Math.max(1,G.p.hp-1);extra+=' They shoved you hard. (-1 HP)'}
   return{ok:false,text:`${n.name}: "Get out of my store." Not buying it. (Pers: ${persCheck.chance}%, Intim: ${intCheck.chance}%)${extra}`,chg:{nerve:'+10',rep:'-3'}};
 }
 
@@ -617,6 +773,187 @@ function makeWitnesses(blk,crime){
   return count;
 }
 function recalc(b){const cl=b.ctrl.player+b.ctrl.kostarov+b.ctrl.dragos+b.ctrl.vega;b.ctrl.neutral=Math.max(0,100-cl)}
+
+// ─── EVENT CHAINS ─────────────────────────────────────────
+function showModal(title,text,choices){
+  const old=document.querySelector('.modal-overlay');if(old)old.remove();
+  G.paused=true;
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  let btns=choices.map((c,i)=>`<button class="abtn" onclick="modalChoice(${i})" style="display:block;width:100%;margin-bottom:6px;text-align:left">${c.label}<div class="modal-sub">${c.sub||''}</div></button>`).join('');
+  ov.innerHTML=`<div class="modal"><h3>${title}</h3><p>${text}</p><div class="acts">${btns}</div></div>`;
+  document.body.appendChild(ov);
+}
+function closeModal(){const o=document.querySelector('.modal-overlay');if(o)o.remove();G.paused=false}
+let modalCB=null;
+function modalChoice(i){closeModal();if(modalCB)modalCB(i);modalCB=null}
+
+function triggerChainEvent(){
+  const p=G.p,chains=[
+    {w:p.rep>300?10:0,fn:chainRivalPeace},
+    {w:12,fn:chainInformantTip},
+    {w:15,fn:chainBusinessOpp},
+    {w:p.crew.length>0?12:0,fn:chainCrewSideJob},
+    {w:G.npcsHere().length>2?10:0,fn:chainNPCConflict},
+  ].filter(c=>c.w>0);
+  if(!chains.length)return;
+  const total=chains.reduce((s,c)=>s+c.w,0);let r=Math.random()*total;
+  for(const c of chains){r-=c.w;if(r<=0){c.fn();return}}
+}
+
+function chainRivalPeace(){
+  const r=RNG.pick(Object.values(G.rivals).filter(x=>x.hostility>25));
+  if(!r)return;
+  showModal(`${r.name} — Peace Offer`,`A messenger arrives: "${r.name} proposes a ceasefire. They'll stop attacking for 3 weeks."`,
+    [{label:'Accept ceasefire',sub:'They stop attacks for 21 days. You stop expanding into their turf.'},
+     {label:'Reject',sub:`+20 hostility. They'll remember.`},
+     {label:'Counter: They pay YOU tribute',sub:`Persuasion check. Success: $${500*G.p.tier}/week. Fail: Immediate attack.`}]);
+  modalCB=i=>{
+    if(i===0){r.phase='passive';r.timer=21;r.hostility=Math.max(0,r.hostility-15);addLog(`Ceasefire with ${r.name}. 21 days of peace.`,'s')}
+    else if(i===1){r.hostility=Math.min(100,r.hostility+20);addLog(`Rejected ${r.name}'s offer. They won't forget.`,'w')}
+    else{const ck=RNG.skill(G.p.skills.persuasion,60);if(ck.ok){r.phase='passive';r.timer=21;addLog(`${r.name} agrees to pay tribute! Power move.`,'r');
+      G.p.rackets.push({npcId:'rival_'+r.id,pay:500*G.p.tier,active:true,missed:0,block:G.p.block})}
+      else{r.phase='attack';r.timer=1;addLog(`${r.name} is FURIOUS. Attack incoming!`,'d')}}
+    render();
+  };
+}
+
+function chainInformantTip(){
+  const isTrap=RNG.chance(35);
+  showModal('Informant Tip','A nervous contact pulls you aside: "I know where the Kostarov stash is. Unguarded warehouse on Block D. Tonight only."',
+    [{label:'Raid it tonight',sub:`${isTrap?'???':'60% chance legit — big payout'}`},
+     {label:'Investigate first',sub:'Street Smarts check to verify'},
+     {label:'Ignore — too risky',sub:'Safe, but no reward'}]);
+  modalCB=i=>{
+    if(i===0){
+      if(!isTrap){const loot=RNG.int(500,2000)*G.p.tier;G.p.addDirty(loot);addRep(15,'raid');addHeat(10,'raid');addLog(`Raided the stash! Found $${loot}!`,'r')}
+      else{addHeat(20,'ambush');G.p.hp=Math.max(1,G.p.hp-2);addLog('IT WAS A TRAP! Ambushed! Lost 2 HP, massive heat.','d')}
+    }else if(i===1){
+      const ck=RNG.skill(G.p.skills.streetSmarts,50);
+      if(ck.ok){addLog(isTrap?'Your instincts say TRAP. You stay away. Good call.':'Intel checks out. Raid looks safe.','s');
+        if(!isTrap){const loot=RNG.int(500,2000)*G.p.tier;G.p.addDirty(loot);addRep(15,'raid');addHeat(8,'raid');addLog(`Raided clean! $${loot} secured.`,'r')}}
+      else addLog('Can\'t tell if it\'s legit. The opportunity passes.','w');
+    }else addLog('You pass on the tip. Maybe next time.','i');
+    render();updateHUD();
+  };
+}
+
+function chainBusinessOpp(){
+  const investAmt=Math.floor((500+G.p.tier*300)*(1+Math.random()*.5));
+  const isScam=RNG.chance(40);
+  showModal('Business Opportunity',`A well-dressed stranger approaches: "I've got a deal that'll triple your money. $${investAmt} buy-in. Returns in one week."`,
+    [{label:`Invest $${investAmt}`,sub:isScam?'Something feels off...':'Looks legitimate'},
+     {label:'Demand collateral first',sub:'Persuasion check'},
+     {label:'Walk away',sub:'No risk, no reward'}]);
+  modalCB=i=>{
+    if(i===0){
+      if(!G.p.canAfford(investAmt))return addLog('You don\'t have enough cash.','w');
+      G.p.spend(investAmt);G.notoriety.business+=2;
+      if(!isScam){
+        // Queue payout — simplified: immediate delayed reward
+        const payout=investAmt*3;
+        setTimeout(()=>{G.p.addDirty(payout);addLog(`Investment paid off! +$${payout}! The stranger was legit.`,'r');updateHUD()},15000);
+        addLog(`Invested $${investAmt}. Returns expected soon...`,'i');
+      }else{addLog(`Invested $${investAmt}. The stranger disappeared. You've been scammed.`,'d');addRep(-5,'scammed')}
+    }else if(i===1){
+      const ck=RNG.skill(G.p.skills.persuasion,55);
+      if(ck.ok&&isScam){addLog('You demand collateral. The stranger stutters and walks away. Scam avoided!','s')}
+      else if(ck.ok&&!isScam){addLog('They provide collateral. Deal is solid.','s');if(G.p.canAfford(investAmt)){G.p.spend(investAmt);
+        setTimeout(()=>{G.p.addDirty(investAmt*3);addLog(`Investment tripled! +$${investAmt*3}!`,'r');updateHUD()},15000);addLog(`Invested $${investAmt} with collateral.`,'i')}}
+      else addLog('They refuse collateral and leave.','w');
+    }else addLog('You pass. Can\'t trust strangers.','i');
+    render();updateHUD();
+  };
+}
+
+function chainCrewSideJob(){
+  const crew=RNG.pick(G.p.crew);if(!crew)return;
+  const pay=RNG.int(200,800);
+  showModal(`${crew.name} — Side Job`,`${crew.name}: "Boss, I found a gig. Quick $${pay}, but it's in rival territory. Could get messy."`,
+    [{label:'Approve — they handle it',sub:`${crew.name} runs it solo. Risk depends on their loyalty.`},
+     {label:'Join them — bigger cut',sub:`$${Math.floor(pay*1.8)} but costs time and heat.`},
+     {label:'Forbid it',sub:`Safe but ${crew.name} loses loyalty (-5).`}]);
+  modalCB=i=>{
+    if(i===0){
+      if(crew.loyalty>50&&RNG.chance(70)){G.p.addDirty(pay);crew.loyalty=Math.min(100,crew.loyalty+3);addLog(`${crew.name} pulled it off! +$${pay}.`,'s')}
+      else if(RNG.chance(40)){addHeat(8,'crew_job');addLog(`${crew.name}'s side job went sideways. +8 heat.`,'w')}
+      else{G.p.addDirty(Math.floor(pay*.5));addLog(`${crew.name} brought back half. "It got complicated."`,'w')}
+    }else if(i===1){
+      const big=Math.floor(pay*1.8);G.p.addDirty(big);addHeat(6,'crew_job');addRep(5,'crew_job');
+      crew.loyalty=Math.min(100,crew.loyalty+5);addLog(`Side job done together. +$${big}. ${crew.name} is impressed.`,'s');
+    }else{crew.loyalty=Math.max(0,crew.loyalty-5);addLog(`${crew.name} is disappointed. Loyalty -5.`,'w')}
+    render();updateHUD();
+  };
+}
+
+function chainNPCConflict(){
+  const here=G.npcsHere().filter(n=>n.role==='civilian'&&n.alive);
+  if(here.length<2)return;
+  const a=here[0],b=here[1];
+  showModal('Street Conflict',`${a.name} and ${b.name} are arguing in the street. It's about to get ugly. They both look to you.`,
+    [{label:`Side with ${a.name}`,sub:`${a.name}: loyalty +15, ${b.name}: loyalty -20, fear +10`},
+     {label:`Side with ${b.name}`,sub:`${b.name}: loyalty +15, ${a.name}: loyalty -20, fear +10`},
+     {label:'Exploit both',sub:'Persuasion check: both owe you. Fail: both hostile.'},
+     {label:'Walk away',sub:'Let them sort it out.'}]);
+  modalCB=i=>{
+    if(i===0){a.loyalty=Math.min(100,a.loyalty+15);b.loyalty=Math.max(0,b.loyalty-20);b.fear=Math.min(100,b.fear+10);addLog(`You backed ${a.name}. ${b.name} won't forget.`,'i')}
+    else if(i===1){b.loyalty=Math.min(100,b.loyalty+15);a.loyalty=Math.max(0,a.loyalty-20);a.fear=Math.min(100,a.fear+10);addLog(`You backed ${b.name}. ${a.name} won't forget.`,'i')}
+    else if(i===2){const ck=RNG.skill(G.p.skills.persuasion,50);if(ck.ok){a.loyalty+=10;b.loyalty+=10;addRep(10,'mediator');addLog('You played both sides. They both owe you now.','r');G.notoriety.cunning+=3}
+      else{a.loyalty-=10;b.loyalty-=10;addLog('They saw through your game. Both are hostile now.','d')}}
+    else{if(RNG.chance(50)){a.hp=Math.max(0,a.hp-1);addLog(`${a.name} lost the fight. ${b.name} walks away.`,'w')}else{b.hp=Math.max(0,b.hp-1);addLog(`${b.name} lost the fight. ${a.name} walks away.`,'w')}}
+    render();updateHUD();
+  };
+}
+
+// ─── WANTED SYSTEM ────────────────────────────────────────
+function updateWanted(){
+  const p=G.p;
+  if(p.heat>60)G.highHeatDays++;else G.highHeatDays=Math.max(0,G.highHeatDays-1);
+  if(!G.wanted.active&&((p.heat>50&&p.arrests>=3)||p.heat>70||G.highHeatDays>=3)){
+    G.wanted={active:true,intensity:1,timer:0};
+    addLog('WANTED: Law enforcement has assigned a task force to find you!','d');
+  }
+  if(G.wanted.active){
+    G.wanted.intensity=Math.min(hasPerk('invisible')?5:15,G.wanted.intensity+(p.heat>70?2:1));
+    // Chance of cop encounter each day
+    if(RNG.chance(G.wanted.intensity*3)){wantedEncounter()}
+    if(p.heat<30){G.wanted.intensity--;if(G.wanted.intensity<=0){G.wanted.active=false;addLog('The heat is off. Wanted status cleared.','s')}}
+  }
+}
+
+function wantedEncounter(){
+  showModal('WANTED — Cop Encounter','A squad car screeches to a halt. Two officers jump out, weapons drawn. "Don\'t move!"',
+    [{label:'Run!',sub:'Street Smarts check. Fail = arrested.'},
+     {label:`Bribe ($${1000*G.wanted.intensity})`,sub:'Expensive but effective.'},
+     {label:'Surrender',sub:'Arrested, but heat drops 30.'}]);
+  modalCB=i=>{
+    const p=G.p;
+    if(i===0){const ck=RNG.skill(p.skills.streetSmarts,50+G.wanted.intensity*3);
+      if(ck.ok){addHeat(5,'flee');addLog('You lost them in the alleys! Close call.','s');G.notoriety.shadow+=2}
+      else{doArrest()}}
+    else if(i===1){const cost=1000*G.wanted.intensity;
+      if(p.canAfford(cost)){p.spend(cost);G.wanted.intensity=Math.max(0,G.wanted.intensity-5);addHeat(-15,'bribe_cops');addLog(`Paid $${cost} to make them look the other way.`,'s');G.notoriety.cunning+=2}
+      else{addLog('You can\'t afford the bribe. They cuff you.','d');doArrest()}}
+    else{doArrest();addHeat(-30,'surrender')}
+    render();updateHUD();
+  };
+}
+
+function doArrest(){
+  const p=G.p,lost=Math.floor(p.cash.dirty*.5);p.cash.dirty-=lost;
+  const bail=500*(1+p.arrests);p.spend(Math.min(bail,p.total));p.arrests++;
+  addHeat(15,'arrested');addRep(-15,'arrested');
+  p.crew.forEach(c=>c.loyalty=Math.max(0,c.loyalty-8));
+  const days=2+p.arrests;for(let i=0;i<days;i++)dayTick();
+  addLog(`Arrested! Cash seized: $${lost}. Bail: $${bail}. Lost ${days} days.`,'d');
+}
+
+// ─── MILESTONE CHECK ──────────────────────────────────────
+function checkMilestones(){
+  for(const m of MILESTONES){
+    if(G.milestonesDone[m.id])continue;
+    if(m.check()){G.milestonesDone[m.id]=G.time.day;m.fx();addLog(`🏆 MILESTONE: ${m.name} — ${m.reward}!`,'r')}
+  }
+}
 
 // ─── RANDOM EVENTS ────────────────────────────────────────
 function randomEvent(){
@@ -642,9 +979,11 @@ function randomEvent(){
       const r=RNG.pick(Object.values(G.rivals));
       addLog(`Word on the street: the ${r.name} is talking about you. ${r.hostility>40?'Not in a good way.':'Curious, not hostile... yet.'}`, r.hostility>40?'w':'i');
     }},
-    {w:p.heat>40?15:0,fn(){
-      addLog('You spot an unmarked car parked outside. Feds? Rivals? Either way, stay sharp.','d');
-    }},
+    {w:p.heat>40?15:0,fn(){addLog('You spot an unmarked car parked outside. Feds? Rivals? Stay sharp.','d')}},
+    // Event chain triggers
+    {w:p.rep>300?8:0,fn:triggerChainEvent},
+    {w:12,fn:triggerChainEvent},
+    {w:p.crew.length>0?10:0,fn:triggerChainEvent},
   ];
   const pool=events.filter(e=>e.w>0);
   const total=pool.reduce((s,e)=>s+e.w,0);
@@ -670,15 +1009,23 @@ function updateTime(ts){
 }
 
 function dayTick(){
-  // Heat decay
-  const decay=G.p.heat>=80?1:G.p.heat>=40?2:3;
+  // Heat decay (with perk boost)
+  let decay=G.p.heat>=80?1:G.p.heat>=40?2:3;
+  decay+=G.perkDecayBoost||0;
   if(G.p.heat>0)addHeat(-decay,'decay');
-  // NPC fear/loyalty decay
+  // NPC fear/loyalty decay with personality modifiers
   for(const n of Object.values(G.npcs)){
     if(!n.alive)continue;
-    if(n.fear>0)n.fear=Math.max(0,n.fear-2);
+    const fearDecay=n.personality==='loyal'?1:2;
+    if(n.fear>0)n.fear=Math.max(0,n.fear-fearDecay);
+    // Volatile: random loyalty swing
+    if(n.personality==='volatile')n.loyalty=Math.max(0,Math.min(100,n.loyalty+RNG.int(-8,8)));
     if(n.worksFor!=='player'){if(n.loyalty>30)n.loyalty--;else if(n.loyalty<30&&n.role==='contact')n.loyalty++}
     if(n.trust>50&&G.time.day-n.lastTalk>7)n.trust=Math.max(0,n.trust-3);
+    // Cowardly NPCs flee if terrified
+    if(n.personality==='cowardly'&&n.fear>70){const adj=DIST[BLK[n.block]?.did]?.blocks?.filter(b=>b!==n.block);if(adj?.length){n.block=RNG.pick(adj)}}
+    // Feared perk: all NPCs start interactions with baseline fear
+    if(hasPerk('feared')&&n.fear<5&&n.worksFor!=='player')n.fear=5;
   }
   // Witness reports
   for(const n of Object.values(G.npcs)){
@@ -695,6 +1042,7 @@ function dayTick(){
         G.p.crew=G.p.crew.filter(x=>x.id!==c.id);c.worksFor='kostarov';c.snitch=true;c.role='rival';
         addHeat(25,'betrayal');addRep(-15,'betrayal');
         G.p.crew.forEach(x=>x.loyalty=Math.max(0,x.loyalty-5));
+        G.betrayalSurvived=true;
       }
     }else c.betrayDays=0;
   }
@@ -704,6 +1052,9 @@ function dayTick(){
     if(cc>0){b.ctrl.player=Math.min(100,b.ctrl.player+cc*2);for(const rid of['kostarov','dragos','vega'])if(b.ctrl[rid]>0)b.ctrl[rid]=Math.max(0,b.ctrl[rid]-cc*2);recalc(b)}
     else if(b.ctrl.player>0){b.ctrl.player=Math.max(0,b.ctrl.player-1);recalc(b)}
   }
+  // Wanted system + milestones
+  updateWanted();
+  checkMilestones();
   // Rival AI
   for(const r of Object.values(G.rivals)){
     if(r.phase==='passive'){if(r.hostility>30||G.p.rep>r.str*50){r.timer--;if(r.timer<=0){r.phase='probe';r.timer=14;addLog(`The ${r.name} is scouting your territory...`,'w')}}}
@@ -732,7 +1083,7 @@ function weekTick(){
   for(const r of p.rackets){
     if(!r.active)continue;
     const n=G.npcs[r.npcId];
-    if(n&&(n.fear>=30||n.loyalty>=40)){p.addDirty(r.pay);inc+=r.pay;r.missed=0}
+    if(n&&(n.fear>=30||n.loyalty>=40)){const rpay=Math.round(r.pay*(1+(G.perkRacketBonus||0)/100));p.addDirty(rpay);inc+=rpay;r.missed=0}
     else{r.missed++;addLog(`${n?n.name:'Someone'} missed payment! (${r.missed}wk overdue)`,'w');
       if(r.missed>=3){r.active=false;addLog(`Racket collapsed!`,'d');addHeat(10,'racket_collapse');
         p.rackets.filter(x=>x.block===r.block&&x.active).forEach(x=>{const nn=G.npcs[x.npcId];if(nn)nn.fear=Math.max(0,nn.fear-10)})}}
@@ -817,6 +1168,7 @@ function updateHUD(){
   const $=id=>document.getElementById(id);
   $('h-cash').textContent='$'+p.total;$('h-cash').title=`Dirty: $${p.cash.dirty} | Clean: $${p.cash.clean} | Stashed: $${p.cash.stashed}`;
   $('h-heat').textContent=p.heat;$('h-hbar').style.width=p.heat+'%';$('h-hbar').style.background=h.c;$('h-htier').textContent=h.n;
+  $('h-wanted').innerHTML=G.wanted.active?`<span class="wanted-tag">WANTED ${G.wanted.intensity}</span>`:'';
   $('h-rep').textContent=p.rep;$('h-rtitle').textContent=t.title;
   $('h-hp').textContent=p.hp+'/'+p.maxHp;$('h-crew').textContent=p.crew.length+'/'+p.crewSlots;
   $('h-loc').textContent=BLK[p.block]?.name||p.block;
@@ -856,7 +1208,7 @@ function renderExplore(c){
     <div class="row"><span>Your Control: <b>${blk.ctrl.player}%</b></span><span>Population: ${blk.pop}</span><span>Cop Presence: ${blk.cops}%</span></div>
     <div class="nav"><span class="nav-l">Go to:</span>
     ${adj.map(b=>`<button class="nbtn" onclick="G.moveTo('${b}')">${BLK[b].name.split(' - ')[1]}</button>`).join('')}
-    ${otherD.map(d=>`<button class="nbtn nbtn-d" onclick="G.moveTo('${d.blocks[0]}')">${d.name}</button>`).join('')}
+    ${otherD.map(d=>{const req=DIST_REQ[d.id]||1;const locked=G.p.tier<req;return`<button class="nbtn nbtn-d${locked?' locked':''}" ${locked?`title="Need ${TIERS[req-1]?.title||'Tier '+req}" disabled`:`onclick="G.moveTo('${d.blocks[0]}')"`}>${d.name}${locked?' 🔒':''}</button>`}).join('')}
     </div></div>`;
 
   h+=`<div class="sec"><h3>👥 People Here (${npcs.length})</h3>`;
@@ -866,8 +1218,9 @@ function renderExplore(c){
     const wt=n.witness?'<span class="tag tag-r">WITNESS</span>':'';
     const crewTag=n.role==='crew'?'<span class="tag tag-g">CREW</span>':'';
     const specTag=n.spec&&n.role!=='crew'?`<span class="tag" style="background:rgba(74,158,255,.15);color:var(--accent)">Recruitable: ${n.spec}</span>`:'';
+    const pTag=n.personality?`<span class="ptag ptag-${n.personality}" title="${PERS_DESC[n.personality]||''}">${n.personality}</span>`:'';
     h+=`<div class="npc" onclick="showNPC('${n.id}')">
-      <div class="npc-h"><span class="npc-icon">${ic}</span><span class="npc-name">${n.name}</span>${wt}${crewTag}${specTag}</div>
+      <div class="npc-h"><span class="npc-icon">${ic}</span><span class="npc-name">${n.name}</span>${pTag}${wt}${crewTag}${specTag}</div>
       <div class="npc-role">${n.role}${n.sub?' — '+n.sub:''}${n.spec&&n.role!=='crew'?' ('+n.spec+')':''}</div>
       <div class="npc-stats"><span title="Loyalty">❤️ ${n.loyalty}</span><span title="Fear">😨 ${n.fear}</span><span title="Nerve">💪 ${n.nerve}</span></div>
       <div class="npc-desc">${n.desc}</div></div>`;
@@ -881,11 +1234,15 @@ function showNPC(id){
   G.paused=true;
   const acts=getActions(n);
   const panel=document.getElementById('apanel');if(!panel)return;
+  const risk=calcRisk('general',n);
+  const pDesc=n.personality?` | ${n.personality}: ${PERS_DESC[n.personality]||''}`:'';
   let h=`<h3>Interact: ${n.name}</h3>
-    <div class="act-stats"><span>Loyalty: ${n.loyalty}</span><span>Fear: ${n.fear}</span><span>Trust: ${n.trust}</span><span>Nerve: ${n.nerve}</span><span>HP: ${n.hp}/${n.maxHp}</span></div>
+    <div class="act-stats"><span>Loyalty: ${n.loyalty}</span><span>Fear: ${n.fear}</span><span>Trust: ${n.trust}</span><span>Nerve: ${n.nerve}</span><span>HP: ${n.hp}/${n.maxHp}</span>${n.personality?`<span class="ptag ptag-${n.personality}">${n.personality}</span>`:''}</div>
+    <div class="risk-tip"><span class="rdot rdot-${risk.level}"></span>${risk.tip}${pDesc}</div>
     <div class="acts">`;
   for(const a of acts){
-    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')">${a.label}</button>`;
+    const rdot=a.id==='talk'?'low':risk.level;
+    if(a.on)h+=`<button class="abtn" onclick="doAction('${a.id}','${n.id}')"><span class="rdot rdot-${rdot}"></span>${a.label}</button>`;
     else h+=`<button class="abtn abtn-off" disabled title="${a.lock||''}">${a.label}${a.lock?' ('+a.lock+')':''}</button>`;
   }
   h+=`<button class="abtn abtn-x" onclick="closeNPC()">Walk Away</button></div><div id="ares"></div>`;
@@ -949,7 +1306,7 @@ function renderCrew(c){
     h+=`<div class="frt"><span>${f.type}</span><span>Washed: $${f.washed}/$${f.cap}</span><span>Cut: ${Math.round(f.cut*100)}%</span>
       <span>${f.raided?'🚨 RAIDED':'✅ Open'}</span>
       ${!f.raided&&p.cash.dirty>0?`<button class="abtn abtn-s" onclick="launderMoney(${i})">Launder</button>`:''}</div>`}
-  if(p.tier>=4){h+=`<h4>Buy a Front:</h4><div class="acts">`;
+  if(p.tier>=4||G.perkEarlyFronts){h+=`<h4>Buy a Front:</h4><div class="acts">`;
     for(const[k,v]of Object.entries(FRONTS))h+=`<button class="abtn" onclick="buyFront('${k}')">${k} ($${v.cost/1000}K)</button>`;
     h+=`</div>`}
   h+=`</div>`;c.innerHTML=h;
@@ -964,10 +1321,11 @@ function stationCrew(id){
 function renderMap(c){
   let h=`<div class="sec"><h3>🗺️ Territory</h3>`;
   for(const[did,dist]of Object.entries(DIST)){
-    h+=`<div class="dcard"><h4>${dist.name}</h4><p class="desc">${dist.desc}</p><div class="bgrid">`;
+    const req=DIST_REQ[did]||1;const locked=G.p.tier<req;
+    h+=`<div class="dcard"${locked?' style="opacity:.5"':''}><h4>${dist.name}${locked?' 🔒 <span style="font-size:11px;color:var(--dim)">Need '+TIERS[req-1]?.title+'</span>':''}</h4><p class="desc">${dist.desc}</p><div class="bgrid">`;
     for(const bid of dist.blocks){const b=BLK[bid];const here=G.p.block===bid;
       const cc=b.ctrl.player>50?'#4a9eff':b.ctrl.kostarov>50?'#ff4444':b.ctrl.dragos>50?'#ff8800':b.ctrl.vega>50?'#cc44cc':'#666';
-      h+=`<div class="btile${here?' here':''}" onclick="G.moveTo('${bid}')" style="border-color:${cc}">
+      h+=`<div class="btile${here?' here':''}" onclick="${locked?`addLog('Locked — need ${TIERS[req-1]?.title}','w')`:`G.moveTo('${bid}')`}" style="border-color:${cc}${locked?';opacity:.4':''}">
         <div class="bname">${bid.split('_')[1].toUpperCase()}</div>
         <div class="bbar"><div class="bfill" style="width:${b.ctrl.player}%;background:#4a9eff"></div></div>
         <div class="binfo">${b.ctrl.player}% ${b.crew.length?'👥':''}</div>
@@ -991,6 +1349,22 @@ function renderSkills(c){
     h+=`<div class="skrow"><div class="skinfo"><span class="skn">${s.n}: ${lv}/8</span><span class="skd">${s.d}</span></div>
       <div class="skbar"><div class="skfill" style="width:${lv/8*100}%"></div></div>
       ${p.skillPts>0&&lv<8?`<button class="abtn abtn-s" onclick="upSkill('${s.k}')">+1</button>`:''}</div>`}
+  // Notoriety
+  h+=`<h3>🎭 Notoriety</h3>`;
+  const nots=[{k:'violent',n:'Violent',c:'var(--red)'},{k:'cunning',n:'Cunning',c:'var(--purple)'},{k:'business',n:'Business',c:'var(--green)'},{k:'shadow',n:'Shadow',c:'var(--accent)'}];
+  for(const nt of nots){const val=G.notoriety[nt.k];const maxShow=100;
+    h+=`<div class="nbar"><span class="nbar-name">${nt.n}</span><div class="nbar-track"><div class="nbar-fill" style="width:${Math.min(100,val)}%;background:${nt.c}"></div></div><span class="nbar-val">${val}</span></div>`;
+    const perks=NOT_PERKS.filter(pp=>pp.cat===nt.k);
+    h+=`<div style="margin-bottom:8px;margin-left:78px">`;
+    for(const pp of perks){const unlocked=val>=pp.at;h+=`<span class="perk${unlocked?'':' locked'}" title="${pp.desc}">${unlocked?'✓':pp.at+'+'} ${pp.name}</span>`}
+    h+=`</div>`;
+  }
+
+  // Milestones
+  h+=`<h3>🏆 Milestones</h3>`;
+  for(const m of MILESTONES){const done=G.milestonesDone[m.id];
+    h+=`<div class="mstone${done?' done':''}"><div><span class="mstone-name">${done?'✓ ':''}${m.name}</span><br><span class="mstone-desc">${m.desc}</span></div><span class="mstone-reward">${m.reward}</span></div>`}
+
   h+=`<h3>📈 Stats</h3><div class="stgrid">
     <div class="stitem"><span>Dirty Cash</span><span>$${p.cash.dirty}</span></div>
     <div class="stitem"><span>Clean Cash</span><span>$${p.cash.clean}</span></div>
@@ -1000,6 +1374,7 @@ function renderSkills(c){
     <div class="stitem"><span>Active Rackets</span><span>${p.rackets.filter(r=>r.active).length}</span></div>
     <div class="stitem"><span>Territories (50%+)</span><span>${Object.values(BLK).filter(b=>b.ctrl.player>=50).length}/24</span></div>
     <div class="stitem"><span>Total Crew</span><span>${p.crew.length}</span></div>
+    <div class="stitem"><span>Wanted</span><span>${G.wanted.active?'YES ('+G.wanted.intensity+')':'No'}</span></div>
   </div></div>`;c.innerHTML=h;
 }
 function upSkill(k){const p=G.p;if(p.skillPts<=0||p.skills[k]>=8)return;p.skillPts--;p.skills[k]++;addLog(`${k} upgraded to level ${p.skills[k]}.`,'r');render();updateHUD()}
