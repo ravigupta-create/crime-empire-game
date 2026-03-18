@@ -1526,13 +1526,13 @@ function recalc(b){const cl=b.ctrl.player+b.ctrl.kostarov+b.ctrl.dragos+b.ctrl.v
 // ─── EVENT CHAINS ─────────────────────────────────────────
 function showModal(title,text,choices){
   const old=document.querySelector('.modal-overlay');if(old)old.remove();
-  G.paused=true;
+  G.paused=true;clearKeys();
   const ov=document.createElement('div');ov.className='modal-overlay';
   let btns=choices.map((c,i)=>`<button class="abtn" onclick="modalChoice(${i})" style="display:block;width:100%;margin-bottom:6px;text-align:left">${c.label}<div class="modal-sub">${c.sub||''}</div></button>`).join('');
   ov.innerHTML=`<div class="modal"><h3>${title}</h3><p>${text}</p><div class="acts">${btns}</div></div>`;
   document.body.appendChild(ov);
 }
-function closeModal(){const o=document.querySelector('.modal-overlay');if(o)o.remove();G.paused=false}
+function closeModal(){const o=document.querySelector('.modal-overlay');if(o)o.remove();G.paused=false;clearKeys()}
 let modalCB=null;
 function modalChoice(i){closeModal();if(modalCB)modalCB(i);modalCB=null}
 
@@ -2681,7 +2681,7 @@ function renderExplore(c){
 
 function showNPC(id){
   const n=G.npcs[id];if(!n)return;
-  G.paused=true;
+  G.paused=true;clearKeys();
   const acts=getActions(n);
   const panel=document.getElementById('apanel');if(!panel)return;
   const risk=calcRisk('general',n);
@@ -2987,15 +2987,19 @@ function initNPCWorld(){
 }
 
 // ─── INPUT ────────────────────────────────────────────────
+function clearKeys(){for(const k in keys)keys[k]=false;PW.moving=false}
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();keys[k]=true;
   if(k==='e'&&!G.paused&&!G._mapOpen)tryWorldInteract();
   if(k==='m'&&gameStarted){toggleFullMap();e.preventDefault()}
   if(k==='escape'&&G._mapOpen){closeFullMap();e.preventDefault()}
-  if(k===' '&&gameStarted&&!G._mapOpen){G.paused=!G.paused;G.time.last=0;const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
+  if(k===' '&&gameStarted&&!G._mapOpen){G.paused=!G.paused;G.time.last=0;clearKeys();const pb=document.getElementById('btn-pause');if(pb)pb.textContent=G.paused?'▶':'⏸';e.preventDefault()}
   if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)&&!G._mapOpen)e.preventDefault();
 });
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+// Clear stuck keys when window loses focus or modal opens
+window.addEventListener('blur',clearKeys);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)clearKeys()});
 
 // ─── FULLSCREEN MAP ──────────────────────────────────────
 G._mapOpen=false;
@@ -3003,7 +3007,7 @@ G._mapOpen=false;
 function toggleFullMap(){if(G._mapOpen)closeFullMap();else openFullMap()}
 
 function openFullMap(){
-  G._mapOpen=true;G.paused=true;
+  G._mapOpen=true;G.paused=true;clearKeys();
   const old=document.getElementById('fullmap-overlay');if(old)old.remove();
   const ov=document.createElement('div');ov.id='fullmap-overlay';
   ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;z-index:150;background:rgba(5,5,15,.92);display:flex;flex-direction:column;align-items:center;padding:20px;overflow-y:auto';
@@ -3132,12 +3136,12 @@ function tryWorldInteract(){
     const dx=n.wx-PW.x,dy=n.wy-PW.y,d=Math.sqrt(dx*dx+dy*dy);
     if(d<bestD){bestD=d;best=n}
   }
-  if(best){showNPC(best.id);G.paused=true}
+  if(best){clearKeys();showNPC(best.id);G.paused=true}
 }
 
 // ─── PLAYER MOVEMENT ─────────────────────────────────────
 function updatePlayer(){
-  if(G.paused)return;
+  if(G.paused){PW.moving=false;return}
   let dx=0,dy=0;
   if(keys.w||keys.arrowup){dy=-1;PW.dir=3}
   if(keys.s||keys.arrowdown){dy=1;PW.dir=0}
@@ -3677,7 +3681,7 @@ function startGame(loadSave,godMode=false){
     if(this.p.block!==old){const c=blockCenter(blk);PW.x=c.x;PW.y=c.y;CAM.x=PW.x-cvs.width/2;CAM.y=PW.y-cvs.height/2}
   };
   const _origClose=closeNPC;
-  closeNPC=function(){_origClose();G.paused=false};
+  closeNPC=function(){_origClose();G.paused=false;clearKeys()};
 
   G.init();
   initBlockRegions();
