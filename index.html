@@ -41,7 +41,7 @@ body.on-home{overflow:auto}
 .tabs{display:flex;background:var(--panel);border-bottom:1px solid var(--border)}
 .tab{flex:1;padding:10px;background:none;border:none;color:var(--dim);font-family:'Inter',sans-serif;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
 .tab:hover{color:var(--text);background:var(--card)}.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
-#content{flex:1;overflow-y:auto;padding:12px}
+#content{flex:1;overflow-y:auto;padding:12px;min-height:0}
 
 /* ─── Components ─── */
 .sec{margin-bottom:14px}
@@ -131,7 +131,7 @@ body.on-home{overflow:auto}
 /* Log */
 .logbar{background:var(--panel);display:flex;flex-direction:column;border-left:1px solid var(--border)}
 .loghd{padding:10px 12px;font-weight:700;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border)}
-#log{flex:1;overflow-y:auto;padding:8px}
+#log{flex:1;overflow-y:auto;padding:8px;min-height:0}
 .le{padding:4px 8px;margin-bottom:3px;border-radius:3px;font-size:12px;line-height:1.4;border-left:2px solid transparent}
 .lt{color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:10px;margin-right:6px}
 .le-i{border-left-color:var(--dim)}.le-s{border-left-color:var(--green);background:rgba(68,204,102,.05)}
@@ -3230,7 +3230,11 @@ function updateNPCs(){
 // ─── CAMERA ───────────────────────────────────────────────
 function updateCam(cvs){
   const tx=PW.x-cvs.width/2, ty=PW.y-cvs.height/2;
-  CAM.x+=(tx-CAM.x)*.1;CAM.y+=(ty-CAM.y)*.1;
+  // Snap camera — fast lerp so player+bodyguards always visible
+  const lerp=PW.moving?0.25:0.15;// Faster when moving
+  CAM.x+=(tx-CAM.x)*lerp;CAM.y+=(ty-CAM.y)*lerp;
+  // If distance is huge (fast-travel), snap instantly
+  if(Math.abs(tx-CAM.x)>cvs.width||Math.abs(ty-CAM.y)>cvs.height){CAM.x=tx;CAM.y=ty}
   CAM.x=Math.max(0,Math.min(WW*T-cvs.width,CAM.x));
   CAM.y=Math.max(0,Math.min(WH*T-cvs.height,CAM.y));
 }
